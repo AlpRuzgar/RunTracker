@@ -11,7 +11,7 @@ import SwiftUI
 struct RunTrackerApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            MainView()
         }
     }
 }
