@@ -6,12 +6,13 @@
 //
 
 import SwiftUI
+import FirebaseCore
 
 @main
 struct RunTrackerApp: App {
     var body: some Scene {
         WindowGroup {
-            MainView()
+                MainView()
         }
     }
 }

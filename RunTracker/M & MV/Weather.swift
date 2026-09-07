@@ -42,34 +42,44 @@ extension UnitSpeed {
 }
 
 extension WeatherCondition {
-    var runSuitability: RunSuitability {
+    // Conditions dangerous enough that no other factor matters.
+    var isSevere: Bool {
         switch self {
-        case .clear, .mostlyClear, .partlyCloudy, .mostlyCloudy,
-             .cloudy, .breezy, .sunFlurries, .sunShowers:
-            return .suitable
-
-        case .foggy, .haze, .windy, .drizzle, .rain,
-             .flurries, .snow, .hot, .frigid, .wintryMix:
-            return .moderate
-
-        case .smoky, .blowingDust, .heavyRain, .heavySnow, .blowingSnow,
-             .sleet, .freezingDrizzle, .freezingRain, .hail,
-             .thunderstorms, .isolatedThunderstorms, .scatteredThunderstorms,
-             .strongStorms, .hurricane, .tropicalStorm, .blizzard:
-            return .notSuitable
-
-        @unknown default:
-            return .moderate
+        case .thunderstorms, .isolatedThunderstorms, .scatteredThunderstorms,
+             .strongStorms, .hurricane, .tropicalStorm, .blizzard,
+             .heavyRain, .heavySnow, .blowingSnow, .sleet,
+             .freezingDrizzle, .freezingRain, .hail,
+             .smoky, .blowingDust:
+            return true
+        default:
+            return false
         }
     }
-}
 
-extension RunSuitability {
-    var points: Int {
+    var isRainy: Bool {
         switch self {
-        case .suitable: return 2
-        case .moderate: return 1
-        case .notSuitable: return 0
+        case .drizzle, .rain, .sunShowers, .wintryMix:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var isSnowy: Bool {
+        switch self {
+        case .flurries, .snow, .sunFlurries:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var isFoggy: Bool {
+        switch self {
+        case .foggy, .haze:
+            return true
+        default:
+            return false
         }
     }
 }
