@@ -22,6 +22,13 @@ struct MapView: View {
     @State private var state: generationState = .idle
     @State private var errorMessage: String?
     @State private var isGeneratedRoute = false
+    /// Rotanın gidiş yönünü gösteren oklar.
+    @State private var arrows: [RouteArrow] = []
+    /// Haritanın kuzeye göre dönüklüğü; oklar buna göre hizalanır.
+    @State private var mapHeading = 0.0
+    /// İlk konum gelince harita bir kez kullanıcıya odaklanır; sonrasında
+    /// kamerayı kullanıcı ya da üretilen rota yönetir.
+    @State private var hasCentered = false
     
     private let targetDistance: Double = 2000
     
@@ -35,7 +42,13 @@ struct MapView: View {
                             MapPolyline(leg.polyline)
                                 .stroke(.blue, lineWidth: 5)
                         }
+                        // Döngü rotasında çizgi tek başına hangi yöne
+                        // koşulacağını göstermez; yönü oklar taşır.
+                        RouteDirectionArrows(arrows: arrows, mapHeading: mapHeading)
                     }
+                }
+                .onMapCameraChange(frequency: .continuous) { context in
+                    mapHeading = context.camera.heading
                 }
                 .mapControls {
                     MapUserLocationButton()
@@ -81,24 +94,47 @@ struct MapView: View {
                     .padding()
                     .buttonStyle(.glassProminent)
                     
-                    if isGeneratedRoute {
-                        Button {
-                            //start navigation route
+                    // Son üretilen rota için navigasyonu başlatır.
+                    if let route {
+                        NavigationLink {
+                            NavigationView(route: route)
                         } label: {
                             Image(systemName: "play.fill")
                         }
                         .buttonStyle(.glassProminent)
                     }
+
+                    // Rotasız koşu: yol tarifi yok, yalnızca kayıt.
+                    NavigationLink {
+                        FreeRunView()
+                    } label: {
+                        Label("Free run", systemImage: "figure.run")
+                    }
+                    .buttonStyle(.glass)
                 }
             }
         }
         .onAppear {
-            if let location = locationManager.userLocation {
-                cameraPosition = .region(MKCoordinateRegion(center: location.coordinate, latitudinalMeters: 750, longitudinalMeters: 750))
-            }
+            focusOnUser()
+        }
+        .onChange(of: locationManager.userLocation) { _, _ in
+            // İlk konum genelde görünüm açıldıktan sonra gelir.
+            focusOnUser()
         }
     }
     
+    /// İlk konum gelince haritayı kullanıcının üstüne, 3B eğimle yerleştirir.
+    private func focusOnUser() {
+        guard !hasCentered, let location = locationManager.userLocation else { return }
+        hasCentered = true
+        cameraPosition = .camera(MapCamera(
+            centerCoordinate: location.coordinate,
+            distance: 900,
+            heading: 0,
+            pitch: RunCamera.defaultPitch
+        ))
+    }
+
     private func createRoute() {
         guard let location = locationManager.userLocation else { return }
         
@@ -111,6 +147,7 @@ struct MapView: View {
                     targetDistanceMeters: targetDistance
                 )
                 route = newRoute
+                arrows = newRoute.directionArrows
                 focus(on: newRoute)
                 state = .done
             } catch {

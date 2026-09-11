@@ -7,6 +7,7 @@
 
 import SwiftUI
 import FirebaseCore
+import SwiftData
 
 @main
 struct RunTrackerApp: App {
@@ -14,5 +15,6 @@ struct RunTrackerApp: App {
         WindowGroup {
                 MainView()
         }
+        .modelContainer(for: [RunSession.self, TraveledPath.self])
     }
 }

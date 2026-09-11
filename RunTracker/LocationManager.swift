@@ -5,6 +5,8 @@ class LocationManager: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     var userLocation: CLLocation?
     var userLocationCoordinate2D: CLLocationCoordinate2D?
+    /// Pusula yönü. Kullanıcı dururken gidiş yönü buradan okunur.
+    var userHeading: CLHeading?
     var pathSegments: [[CLLocationCoordinate2D]] = []
     var isTracking = false
     var isManuallyPaused = false
@@ -15,9 +17,23 @@ class LocationManager: NSObject, CLLocationManagerDelegate {
     private let pauseDelay: TimeInterval = 3
     private var possibleStopTime: Date?
 
+    /// Kullanıcının gittiği yön (derece). Hareket hâlindeyken GPS'in ölçtüğü
+    /// gidiş yönü kullanılır; dururken bu ölçüm anlamsız olduğu için pusulaya
+    /// düşülür. İkisi de yoksa yön bilinmiyor demektir.
+    var travelDirection: Double? {
+        if let userLocation, userLocation.speed > 1,
+           userLocation.courseAccuracy >= 0, userLocation.course >= 0 {
+            return userLocation.course
+        }
+        guard let userHeading, userHeading.headingAccuracy >= 0 else { return nil }
+        return userHeading.trueHeading >= 0 ? userHeading.trueHeading : userHeading.magneticHeading
+    }
+
     override init() {
         super.init()
         manager.delegate = self
+        // Pusula her derecelik oynamada haber vermesin; kamera boş yere sallanır.
+        manager.headingFilter = 3
     }
 
     func requestPermission() {
@@ -49,9 +65,26 @@ class LocationManager: NSObject, CLLocationManagerDelegate {
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        if manager.authorizationStatus == .authorizedWhenInUse {
+        switch manager.authorizationStatus {
+        case .notDetermined:
+            // Delegate atanır atanmaz bu metot çağrıldığı için izin isteği
+            // uygulamanın ilk açılışında kendiliğinden çıkar.
+            requestPermission()
+        case .authorizedWhenInUse, .authorizedAlways:
             manager.startUpdatingLocation()
+            if CLLocationManager.headingAvailable() {
+                manager.startUpdatingHeading()
+            }
+        default:
+            break
         }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+        // Negatif doğruluk, pusulanın (manyetik girişim, kalibrasyonsuzluk)
+        // güvenilir bir ölçüm veremediği anlamına gelir.
+        guard newHeading.headingAccuracy >= 0 else { return }
+        userHeading = newHeading
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {

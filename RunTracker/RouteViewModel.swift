@@ -20,11 +20,13 @@ struct GeneratedRoute: Identifiable {
     let legs: [MKRoute]
     /// Rotanın toplam uzunluğu (metre).
     let distance: Double
-    /// Döngünün merkezi — aynı rotanın tekrar üretilip üretilmediğini anlamak için.
+    /// Döngünün merkezi — rotanın hangi yöne açıldığını anlamak için.
     let center: CLLocationCoordinate2D
 
     var polylines: [MKPolyline] { legs.map(\.polyline) }
     var distanceInKm: Double { distance / 1000 }
+    /// Rotanın gidiş yönünü gösteren oklar.
+    var directionArrows: [RouteArrow] { RouteArrow.along(polylines) }
 }
 
 enum RouteGenerationError: Error {
@@ -35,7 +37,7 @@ enum RouteGenerationError: Error {
 // MARK: - Rota üretici
 
 /// Kullanıcının konumundan başlayıp aynı noktada biten, elips biçiminde rastgele
-/// koşu döngüleri üretir. Ürettiği rotaları saklar; yeni bir rota bulunamazsa
+/// koşu döngüleri üretir. Ürettiği rotaları saklar; yeni rota bulunamazsa
 /// eskileri sırayla tekrar gösterir.
 @MainActor
 @Observable
@@ -43,8 +45,10 @@ final class RouteGenerator {
 
     // MARK: Ayarlar
 
-    /// Döngüdeki köşe sayısı (başlangıç noktası dahil).
-    var vertexCount = 6
+    /// Döngüdeki köşe sayısı aralığı (başlangıç noktası dahil). Her denemede
+    /// buradan rastgele seçilir; köşe sayısı değiştikçe döngünün karakteri de
+    /// değişir, bu da aynı yerden farklı rotalar çıkmasını kolaylaştırır.
+    var vertexCountRange = 5...7
     /// Yeni bir rota için kaç farklı elips denenecek. Parçalar paralel çekildiği
     /// için bir deneme ucuzdur; elenen şekillerin yerine yenisini denemek kolaydır.
     var maxAttempts = 12
@@ -58,9 +62,15 @@ final class RouteGenerator {
     /// uzayabilir; kullanıcıyı bekletmemek için süre dolunca geçmişe düşülür.
     var timeLimit: Duration = .seconds(15)
     /// Bir çağrıda yapılabilecek en fazla MKDirections isteği. Apple istekleri
-    /// sunucu tarafında sınırlar; tek dokunuşta büyük istek yığınları göndermek
-    /// sonraki çağrıların da sınırlanmasına yol açar. Bütçe dolunca geçmişe düşülür.
-    var requestBudget = 25
+    /// sunucu tarafında sınırlar, ama tek bir denemenin kendisi bir turda
+    /// köşe sayısı kadar istek harcar: bütçe birkaç denemeye yetmezse üretim
+    /// daha ilk elenen şekilde durur ve hep aynı rotalar gösterilir.
+    var requestBudget = 60
+
+    /// İlk kaç deneme, geçmişte kullanılmamış bir yöne açılan şekillerle yapılır.
+    /// Kalan denemelerde yön kısıtı kalkar; kısıtlı yönde rota bulunamayan
+    /// yerlerde (deniz kıyısı, şehir sınırı) üretim tıkanmasın.
+    private let directedAttempts = 6
 
     /// MapKit, erişilemeyen bir waypoint'i en yakın yola bağlar. Bu mesafe aşılırsa
     /// nokta gerçekten kullanılabilir değildir (su, özel arazi, yolsuz alan).
@@ -70,9 +80,10 @@ final class RouteGenerator {
     private let maxRepeatedStretch = 60.0
     /// Bu mesafeden yakın başlangıçlar "aynı yer" sayılır.
     private let sameStartDistance = 150.0
-    /// Merkezleri ve uzunlukları bu kadar yakın olan iki rota "aynı rota" sayılır.
-    private let sameCenterDistance = 120.0
-    private let sameLengthDifference = 250.0
+    /// İki rotanın "aynı rota" sayılması için gereken örtüşme oranı.
+    private let sameRouteOverlap = 0.55
+    /// Örtüşme ölçümünün ızgara çözünürlüğü (metre).
+    private let footprintCellSize = 35.0
 
     /// Bir waypoint kullanılabilir değilse sırayla denenecek düzeltmeler:
     /// önce hafif döndürme, sonra merkeze doğru çekme (kıyı, park kenarı, çıkmaz sokak).
@@ -86,8 +97,21 @@ final class RouteGenerator {
 
     // MARK: Geçmiş
 
+    /// Geçmişte tutulan bir rota ve onu karşılaştırmak için gereken bilgiler.
+    private struct Remembered {
+        let route: GeneratedRoute
+        /// Rotanın harita üzerinde kapladığı ızgara gözleri, komşularıyla
+        /// birlikte genişletilmiş: aynı sokağın iki yanına düşen örnekler de
+        /// örtüşmüş sayılır.
+        let cells: Set<GridCell>
+        /// Döngünün, başlangıç noktasından bakınca hangi yöne açıldığı (derece).
+        let bearing: Double
+    }
+
+    private var entries: [Remembered] = []
+
     /// Bu oturumda üretilmiş rotalar.
-    private(set) var history: [GeneratedRoute] = []
+    var history: [GeneratedRoute] { entries.map(\.route) }
     /// Son çağrıda yeni rota üretilemeyip geçmişten bir rota gösterildiyse `true`.
     private(set) var isShowingCachedRoute = false
 
@@ -126,8 +150,15 @@ final class RouteGenerator {
         requestCount = 0
         wasThrottled = false
 
-        for _ in 0..<maxAttempts where !shouldStop {
-            let shape = LoopShape.random(vertexCount: vertexCount)
+        // Aynı yerden üretilmiş rotaların yönleri; yeni rota öncelikle
+        // bunlardan en uzak yöne açılan şekillerle aranır.
+        let unusedBearing = preferredBearing(near: start)
+
+        for attempt in 0..<maxAttempts where !shouldStop {
+            let shape = LoopShape.random(
+                vertexCount: Int.random(in: vertexCountRange),
+                towards: attempt < directedAttempts ? unusedBearing : nil
+            )
 
             guard let candidate = await bestFit(of: shape, from: start, target: target),
                   isUsable(candidate, target: target) else { continue }
@@ -142,7 +173,7 @@ final class RouteGenerator {
 
     /// Geçmişi temizler; kullanıcı başka bir şehre/konuma geçtiğinde çağrılabilir.
     func reset() {
-        history.removeAll()
+        entries.removeAll()
         legCache.removeAll()
         cycleIndex = 0
         isShowingCachedRoute = false
@@ -362,29 +393,116 @@ final class RouteGenerator {
 
     // MARK: Geçmiş yönetimi
 
-    /// Aynı sokakların tekrar tekrar önerilmemesi için geçmişle karşılaştırır.
+    /// Rota, daha önce gösterilmiş bir rotayla büyük ölçüde aynı sokaklardan mı geçiyor?
+    ///
+    /// Merkez ve uzunluk karşılaştırmak burada işe yaramaz: aynı noktadan
+    /// başlayıp aynı hedef mesafeyi tutturan her döngünün merkezi de uzunluğu da
+    /// birbirine yakın çıkar, dolayısıyla ilk bir iki rotadan sonra her yeni
+    /// aday "aynı" sayılıp elenir. Onun yerine rotaların haritada gerçekten
+    /// kapladığı gözler karşılaştırılır: farklı sokaklardan geçen iki döngü,
+    /// merkezleri çakışsa bile ayrı rotalardır.
     private func isTooSimilar(_ route: GeneratedRoute) -> Bool {
-        history.contains { existing in
-            Geo.distance(existing.center, route.center) < sameCenterDistance
-                && abs(existing.distance - route.distance) < sameLengthDifference
+        let cells = GridCell.footprint(of: route.polylines, size: footprintCellSize)
+        guard !cells.isEmpty else { return false }
+
+        return entries.contains { existing in
+            let shared = cells.filter(existing.cells.contains).count
+            return Double(shared) / Double(cells.count) >= sameRouteOverlap
         }
     }
 
+    /// Yakında üretilmiş rotaların yönlerinden en uzak yön. Aynı yerden art arda
+    /// üretilen rotalar böylece farklı yönlere açılır.
+    private func preferredBearing(near start: CLLocationCoordinate2D) -> Double? {
+        let used = entries
+            .filter { Geo.distance($0.route.start, start) < sameStartDistance }
+            .map(\.bearing)
+        guard !used.isEmpty else { return nil }
+
+        // Tüm yönler 15 derece adımlarla taranır; kullanılanlara en uzak olan seçilir.
+        return stride(from: 0.0, to: 360.0, by: 15.0).max { a, b in
+            clearance(of: a, from: used) < clearance(of: b, from: used)
+        }
+    }
+
+    /// Bir yönün, daha önce kullanılmış yönlerin en yakınına olan açı farkı.
+    private func clearance(of bearing: Double, from used: [Double]) -> Double {
+        used.map { Geo.angularDifference(bearing, $0) }.min() ?? 180
+    }
+
     private func remember(_ route: GeneratedRoute) {
-        history.append(route)
-        if history.count > historyLimit { history.removeFirst() }
+        entries.append(Remembered(
+            route: route,
+            cells: GridCell.footprint(of: route.polylines, size: footprintCellSize).expanded(),
+            bearing: Geo.bearing(from: route.start, to: route.center)
+        ))
+        if entries.count > historyLimit { entries.removeFirst() }
     }
 
     /// Yeni rota üretilemedi: aynı yerden başlayan eski rotaları sırayla göster.
     /// Kullanıcı başka bir yere gittiyse oradaki rotalar burada işe yaramaz.
     private func cachedRoute(near start: CLLocationCoordinate2D) throws -> GeneratedRoute {
-        let nearby = history.filter { Geo.distance($0.start, start) < sameStartDistance }
+        let nearby = entries.map(\.route).filter { Geo.distance($0.start, start) < sameStartDistance }
         guard !nearby.isEmpty else { throw RouteGenerationError.noRouteFound }
 
         let route = nearby[cycleIndex % nearby.count]
         cycleIndex += 1
         isShowingCachedRoute = true
         return route
+    }
+}
+
+// MARK: - Rota izi
+
+/// Kaba bir harita ızgarasının tek bir gözü. İki rotanın aynı sokaklardan geçip
+/// geçmediği, kapladıkları göz kümelerinin örtüşmesiyle ölçülür.
+private struct GridCell: Hashable {
+    let x: Int
+    let y: Int
+
+    init(x: Int, y: Int) {
+        self.x = x
+        self.y = y
+    }
+
+    init(_ coordinate: CLLocationCoordinate2D, size: Double) {
+        let metersPerLatitudeDegree = Geo.earthRadius * .pi / 180
+        let metersPerLongitudeDegree = metersPerLatitudeDegree * cos(coordinate.latitude * .pi / 180)
+        x = Int((coordinate.longitude * metersPerLongitudeDegree / size).rounded(.down))
+        y = Int((coordinate.latitude * metersPerLatitudeDegree / size).rounded(.down))
+    }
+
+    /// Rotanın geçtiği gözler. Çizgi, göz boyunun yarısı aralıklarla örneklenir;
+    /// uzun düz parçalarda aradaki gözler atlanmasın.
+    static func footprint(of polylines: [MKPolyline], size: Double) -> Set<GridCell> {
+        let path = Geo.joinedCoordinates(of: polylines)
+        guard let first = path.first else { return [] }
+
+        var cells: Set<GridCell> = [GridCell(first, size: size)]
+        for (a, b) in zip(path, path.dropFirst()) {
+            let steps = max(Int(Geo.distance(a, b) / (size / 2)), 1)
+            for i in 1...steps {
+                let point = Geo.interpolate(from: a, to: b, fraction: Double(i) / Double(steps))
+                cells.insert(GridCell(point, size: size))
+            }
+        }
+        return cells
+    }
+}
+
+private extension Set where Element == GridCell {
+    /// Kümeyi komşu gözlerle genişletir: aynı sokaktan geçen iki rota, örnekleri
+    /// ızgaranın iki yanına düşse bile örtüşmüş sayılır.
+    func expanded() -> Set<GridCell> {
+        var expanded = Set<GridCell>(minimumCapacity: count * 9)
+        for cell in self {
+            for dx in -1...1 {
+                for dy in -1...1 {
+                    expanded.insert(GridCell(x: cell.x + dx, y: cell.y + dy))
+                }
+            }
+        }
+        return expanded
     }
 }
 
@@ -406,11 +524,36 @@ private struct LoopShape {
     /// Açıyı değiştirmediği için döngünün kendi üzerine binmemesi garantisi korunur.
     let wobble: [Double]
 
+    /// İstenen yöne "yeterince yakın" sayılan sapma (derece).
+    private static let sectorWidth = 35.0
+
     /// Başlangıç noktası dahil köşe sayısı.
     var vertexCount: Int { wobble.count + 1 }
 
+    /// Döngünün, başlangıç noktasından bakınca hangi yöne açıldığı (derece):
+    /// merkezin başlangıca göre yönü. Yarıçaptan bağımsızdır.
+    var openingBearing: Double {
+        let start = offset(atAngle: startAngle, radius: 1)
+        let degrees = atan2(-start.east, -start.north) * 180 / .pi
+        return degrees < 0 ? degrees + 360 : degrees
+    }
+
     /// Her çağrıda farklı bir elips — rotaların rastgeleliği buradan gelir.
-    static func random(vertexCount: Int) -> LoopShape {
+    /// `bearing` verilirse o yöne açılan bir şekil aranır; şekil üretmek yalnızca
+    /// aritmetik olduğu için denemek ağ isteği maliyeti getirmez.
+    static func random(vertexCount: Int, towards bearing: Double?) -> LoopShape {
+        var shape = randomShape(vertexCount: vertexCount)
+        guard let bearing else { return shape }
+
+        var attempts = 0
+        while Geo.angularDifference(shape.openingBearing, bearing) > sectorWidth, attempts < 100 {
+            shape = randomShape(vertexCount: vertexCount)
+            attempts += 1
+        }
+        return shape
+    }
+
+    private static func randomShape(vertexCount: Int) -> LoopShape {
         LoopShape(
             rotation: .random(in: 0..<(2 * .pi)),
             flattening: .random(in: 0.62...1.0),
@@ -453,83 +596,5 @@ private struct LoopShape {
             let point = offset(atAngle: angle, radius: radius)
             return Geo.move(from: center, east: point.east * wobble[i], north: point.north * wobble[i])
         }
-    }
-}
-
-// MARK: - Geometri yardımcıları
-
-private enum Geo {
-    static let earthRadius = 6_371_000.0
-
-    /// Bir koordinattan verilen yön ve mesafedeki noktayı bulur (great-circle).
-    static func destination(
-        from coordinate: CLLocationCoordinate2D,
-        bearingDegrees: Double,
-        distanceMeters: Double
-    ) -> CLLocationCoordinate2D {
-
-        let bearing = bearingDegrees * .pi / 180
-        let angular = distanceMeters / earthRadius
-        let lat1 = coordinate.latitude * .pi / 180
-        let lon1 = coordinate.longitude * .pi / 180
-
-        let lat2 = asin(sin(lat1) * cos(angular) + cos(lat1) * sin(angular) * cos(bearing))
-        let lon2 = lon1 + atan2(
-            sin(bearing) * sin(angular) * cos(lat1),
-            cos(angular) - sin(lat1) * sin(lat2)
-        )
-
-        return CLLocationCoordinate2D(latitude: lat2 * 180 / .pi, longitude: lon2 * 180 / .pi)
-    }
-
-    /// Koordinatı doğu/kuzey yönünde metre cinsinden kaydırır.
-    static func move(from coordinate: CLLocationCoordinate2D, east: Double, north: Double) -> CLLocationCoordinate2D {
-        let distance = hypot(east, north)
-        guard distance > 0 else { return coordinate }
-        return destination(from: coordinate, bearingDegrees: atan2(east, north) * 180 / .pi, distanceMeters: distance)
-    }
-
-    /// İki koordinat arası mesafe (metre). Kısa mesafelerde düzlemsel yaklaşım hem yeterli hem hızlı.
-    static func distance(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> Double {
-        let meanLatitude = (a.latitude + b.latitude) / 2 * .pi / 180
-        let dx = (b.longitude - a.longitude) * .pi / 180 * cos(meanLatitude)
-        let dy = (b.latitude - a.latitude) * .pi / 180
-        return hypot(dx, dy) * earthRadius
-    }
-
-    /// a noktasından b noktasına bakış yönü (derece).
-    static func bearing(from a: CLLocationCoordinate2D, to b: CLLocationCoordinate2D) -> Double {
-        let lat1 = a.latitude * .pi / 180
-        let lat2 = b.latitude * .pi / 180
-        let deltaLon = (b.longitude - a.longitude) * .pi / 180
-
-        let y = sin(deltaLon) * cos(lat2)
-        let x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(deltaLon)
-        return atan2(y, x) * 180 / .pi
-    }
-
-    /// Noktayı merkez etrafında döndürür ve/veya merkeze doğru çeker.
-    static func adjust(
-        _ point: CLLocationCoordinate2D,
-        around center: CLLocationCoordinate2D,
-        rotateBy degrees: Double,
-        scaleBy factor: Double
-    ) -> CLLocationCoordinate2D {
-        guard degrees != 0 || factor != 1 else { return point }
-        return destination(
-            from: center,
-            bearingDegrees: bearing(from: center, to: point) + degrees,
-            distanceMeters: distance(center, point) * factor
-        )
-    }
-
-    static func coordinates(of polyline: MKPolyline) -> [CLLocationCoordinate2D] {
-        var coordinates = [CLLocationCoordinate2D](repeating: CLLocationCoordinate2D(), count: polyline.pointCount)
-        polyline.getCoordinates(&coordinates, range: NSRange(location: 0, length: polyline.pointCount))
-        return coordinates
-    }
-
-    static func lastCoordinate(of polyline: MKPolyline) -> CLLocationCoordinate2D? {
-        coordinates(of: polyline).last
     }
 }
