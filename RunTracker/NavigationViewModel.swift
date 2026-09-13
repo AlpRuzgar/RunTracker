@@ -140,10 +140,14 @@ final class NavigationViewModel {
 
     // MARK: Genel kullanım
 
-    /// Üretilmiş döngü rotası üzerinde navigasyonu başlatır.
-    func start(route: GeneratedRoute) {
-        steps = makeSteps(from: route.legs, endsAtDestination: true)
-        destination = route.start
+    /// Verilen yol üzerinde navigasyonu başlatır. Talimatlı bacakları olan
+    /// yollarda (üretilmiş rota) adım adım tarif verilir; yalnızca geometrisi
+    /// olan yollarda (kaydedilmiş yol) talimatsız takip yapılır.
+    func start(path: any FollowablePath) {
+        steps = path.legs.isEmpty
+            ? path.polylines.filter { $0.pointCount > 1 }.map { Step(instruction: "", polyline: $0) }
+            : makeSteps(from: path.legs, endsAtDestination: true)
+        destination = path.destination
         lastReroute = nil
         rebuildProgress()
     }

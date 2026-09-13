@@ -28,7 +28,6 @@ final class RunSession {
     var distance: Double
     var plannedDistance: Double?
 
-    var user: User?
     var traveledPath: TraveledPath?
 
     var duration: TimeInterval { endedAt.timeIntervalSince(startedAt) }

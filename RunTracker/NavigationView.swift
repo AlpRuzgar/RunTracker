@@ -16,8 +16,8 @@ import SwiftData
 /// Koşu boyunca kullanıcının geçtiği yol kaydedilir; "End route" bu yolu bir
 /// `RunSession` olarak saklar.
 struct NavigationView: View {
-    /// Takip edilecek rota — MapView'da üretilen son rota.
-    let route: GeneratedRoute
+    /// Takip edilecek yol — üretilmiş bir rota ya da kaydedilmiş bir koşu yolu.
+    let route: any FollowablePath
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -59,7 +59,7 @@ struct NavigationView: View {
             statsBar
         }
         .onAppear {
-            navigation.start(route: route)
+            navigation.start(path: route)
             startedAt = .now
             locationManager.startTracking()
         }

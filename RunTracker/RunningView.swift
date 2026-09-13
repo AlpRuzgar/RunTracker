@@ -25,19 +25,7 @@ struct RunningView: View {
                 VStack {
                     Text(runSuitability.message)
                         .font(.body)
-                    NavigationLink(destination: MapView()) {
-                        VStack {
-                            Image(systemName: "figure.run")
-                                .font(.system(size: 50))
-                                .foregroundStyle(.white)
-                                .padding(15)
-                                .background(
-                                    Circle()
-                                        .foregroundStyle(runSuitability.color.gradient)
-                                )
-                            Text("Start a run!")
-                        }
-                    }
+                    
                         .task(id: locationManager.userLocation) {
                             guard let location = locationManager.userLocation else { return }
                             currentWeather = try? await WeatherService.shared.weather(for: location, including: .current)
