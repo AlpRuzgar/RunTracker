@@ -16,7 +16,7 @@ struct MainView: View {
         TabView(selection: $selectedTab) {
             HomeView()
                 .tabItem{ Label("Home", systemImage: "house")}
-            HomeView()
+            MapView()
                 .tabItem { Label("Run", systemImage: "figure.run") }
                 .tag(Tab.run)
             ProfileView()

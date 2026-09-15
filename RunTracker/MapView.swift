@@ -15,155 +15,209 @@ enum generationState {
 }
 
 struct MapView: View {
-    @State private var locationManager = LocationManager()
-    @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var routeGenerator = RouteGenerator()
-    @State private var route: GeneratedRoute?
+    @State private var locationManager = LocationManager()
+    @State private var distance: Double = 0.0
     @State private var state: generationState = .idle
-    @State private var errorMessage: String?
-    @State private var isGeneratedRoute = false
-    /// Rotanın gidiş yönünü gösteren oklar.
-    @State private var arrows: [RouteArrow] = []
-    /// Haritanın kuzeye göre dönüklüğü; oklar buna göre hizalanır.
-    @State private var mapHeading = 0.0
-    /// İlk konum gelince harita bir kez kullanıcıya odaklanır; sonrasında
-    /// kamerayı kullanıcı ya da üretilen rota yönetir.
-    @State private var hasCentered = false
-    
-    private let targetDistance: Double = 2000
-    
+    @State private var generatedRoute: GeneratedRoute?
+    @State private var generationFailed = false
+    @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
+    @FocusState private var isDistanceFocused: Bool
+
     var body: some View {
         NavigationStack {
-            VStack {
-                Map(position: $cameraPosition) {
-                    UserAnnotation()
-                    if let route {
-                        ForEach(route.legs, id: \.self) { leg in
-                            MapPolyline(leg.polyline)
-                                .stroke(.blue, lineWidth: 5)
-                        }
-                        // Döngü rotasında çizgi tek başına hangi yöne
-                        // koşulacağını göstermez; yönü oklar taşır.
-                        RouteDirectionArrows(arrows: arrows, mapHeading: mapHeading)
+            Map(position: $cameraPosition) {
+                UserAnnotation()
+                if let route = generatedRoute {
+                    ForEach(route.polylines, id: \.self) { polyline in
+                        MapPolyline(polyline)
+                            .stroke(.blue, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
                     }
                 }
-                .onMapCameraChange(frequency: .continuous) { context in
-                    mapHeading = context.camera.heading
-                }
-                .mapControls {
-                    MapUserLocationButton()
-                    MapPitchToggle()        // Toggles between flat 2D and tilted 3D modes
-                    MapScaleView()          // Shows distance/scale legend during zoom
-                }
-                
-                if let route {
-                    Text(String(format: "%.2f km", route.distanceInKm))
-                        .font(.headline)
-                    
-                    if routeGenerator.isShowingCachedRoute {
-                        Text("No new route nearby — showing an earlier one.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
-                
-                HStack{
-                    Button{
-                        createRoute()
-                        isGeneratedRoute = true
-                    } label: {
-                        if !isGeneratedRoute {
-                            Text("Rota oluştur")
-                        } else {
-                            if state == .inProgress {
-                                ProgressView("Generating route...")
-                            } else {
-                                Image(systemName: "arrow.counterclockwise")
-                            }
-                        }
-                    }
-                    .disabled(state == .inProgress)
+            }
+            .mapStyle(.standard(elevation: .realistic))
+            // simultaneousGesture: klavyeyi kapatırken haritanın kendi
+            // dokunma etkileşimlerini engellememek için.
+            .simultaneousGesture(TapGesture().onEnded {
+                isDistanceFocused = false
+            })
+            .mapControls {
+                MapUserLocationButton()
+                MapScaleView()
+            }
+            .overlay(alignment: .bottom) {
+                controlPanel
                     .padding()
-                    .buttonStyle(.glassProminent)
-                    
-                    // Son üretilen rota için navigasyonu başlatır.
-                    if let route {
-                        NavigationLink {
-                            NavigationView(route: route)
-                        } label: {
-                            Image(systemName: "play.fill")
-                        }
-                        .buttonStyle(.glassProminent)
-                    }
+            }
+            // Mesafe değişince eski rotalar geçersizleşir; geçmişte kalırlarsa
+            // üretim tıkandığında yanlış mesafeli rotalar gösterilir.
+            .onChange(of: distance) {
+                routeGenerator.reset()
+            }
+        }
+    }
 
-                    // Rotasız koşu: yol tarifi yok, yalnızca kayıt.
+    /// Haritanın üzerinde yüzen kontrol paneli. Ayrı cam parçaları tek
+    /// `GlassEffectContainer` içinde toplanır ki beliren/kaybolan parçalar
+    /// birbirine karışarak (morph) geçiş yapsın.
+    private var controlPanel: some View {
+        GlassEffectContainer(spacing: 20) {
+            VStack(spacing: 12) {
+                if let route = generatedRoute {
+                    routeCard(route)
+                        .transition(.scale(scale: 0.8).combined(with: .opacity))
+                }
+
+                if generationFailed {
+                    Label("No route found. Try a different distance.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.red)
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 14)
+                        .glassEffect()
+                        .transition(.scale(scale: 0.8).combined(with: .opacity))
+                }
+
+                distanceField
+
+                HStack(spacing: 12) {
                     NavigationLink {
                         FreeRunView()
                     } label: {
-                        Label("Free run", systemImage: "figure.run")
+                        ButtonView(text: "Free Run", symbol: "figure.run")
                     }
                     .buttonStyle(.glass)
+                    .simultaneousGesture(TapGesture().onEnded {
+                        isDistanceFocused = false
+                    })
+
+                    Button {
+                        generateRoute()
+                    } label: {
+                        ButtonView(
+                            text: generatedRoute == nil ? "Generate Route" : "Try Another",
+                            symbol: "sparkles",
+                            isLoading: state == .inProgress
+                        )
+                    }
+                    .buttonStyle(.glassProminent)
+                    .tint(.green)
+                    .disabled(distance <= 0 || state == .inProgress)
+                }
+
+                // Rota hazır olunca navigasyonlu koşu başlatılabilir.
+                if let route = generatedRoute {
+                    NavigationLink {
+                        NavigationView(route: route)
+                    } label: {
+                        ButtonView(text: "Start Navigation", symbol: "location.north.fill")
+                    }
+                    .buttonStyle(.glassProminent)
+                    .tint(.blue)
+                    .simultaneousGesture(TapGesture().onEnded {
+                        isDistanceFocused = false
+                    })
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
         }
-        .onAppear {
-            focusOnUser()
-        }
-        .onChange(of: locationManager.userLocation) { _, _ in
-            // İlk konum genelde görünüm açıldıktan sonra gelir.
-            focusOnUser()
-        }
-    }
-    
-    /// İlk konum gelince haritayı kullanıcının üstüne, 3B eğimle yerleştirir.
-    private func focusOnUser() {
-        guard !hasCentered, let location = locationManager.userLocation else { return }
-        hasCentered = true
-        cameraPosition = .camera(MapCamera(
-            centerCoordinate: location.coordinate,
-            distance: 900,
-            heading: 0,
-            pitch: RunCamera.defaultPitch
-        ))
+        .animation(.spring(duration: 0.45, bounce: 0.25), value: generatedRoute?.id)
+        .animation(.spring(duration: 0.45, bounce: 0.25), value: generationFailed)
+        .animation(.spring(duration: 0.45, bounce: 0.25), value: state)
     }
 
-    private func createRoute() {
-        guard let location = locationManager.userLocation else { return }
-        
+    /// Mesafe girişi: cam kapsül içinde ikon, alan ve birim.
+    private var distanceField: some View {
+        VStack {
+            Text("Enter Distance:")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .font(.system(size: 15, weight: .semibold))
+            HStack {
+                Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                    .foregroundStyle(.green)
+                TextField("Distance", value: $distance, format: .number)
+                    .keyboardType(.decimalPad)
+                    .focused($isDistanceFocused)
+                Text("km")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 18)
+        .glassEffect()
+
+    }
+
+    /// Üretilen rotanın özeti.
+    private func routeCard(_ route: GeneratedRoute) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+            Text(String(format: "Route found — %.2f km", route.distanceInKm))
+                .font(.subheadline.weight(.semibold))
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .glassEffect(.regular.tint(.green.opacity(0.2)))
+    }
+
+    /// Kullanıcının konumundan, girilen mesafede bir döngü rotası üretir ve
+    /// kamerayı rotayı gösterecek şekilde ayarlar.
+    private func generateRoute() {
+        isDistanceFocused = false
+        guard let start = locationManager.userLocationCoordinate2D else {
+            generationFailed = true
+            return
+        }
+        state = .inProgress
+        generationFailed = false
+
         Task {
-            state = .inProgress
-            errorMessage = nil
             do {
-                let newRoute = try await routeGenerator.generateLoop(
-                    from: location.coordinate,
-                    targetDistanceMeters: targetDistance
+                let route = try await routeGenerator.generateLoop(
+                    from: start,
+                    targetDistanceMeters: distance * 1000
                 )
-                route = newRoute
-                arrows = newRoute.directionArrows
-                focus(on: newRoute)
+                generatedRoute = route
                 state = .done
+                withAnimation(.easeInOut(duration: 0.8)) {
+                    cameraPosition = .rect(boundingRect(of: route))
+                }
             } catch {
-                errorMessage = "Couldn't build a route here right now — try again in a moment."
+                generatedRoute = nil
                 state = .idle
+                generationFailed = true
             }
         }
     }
-    
-    /// Kamerayı rotanın tamamını kapsayacak şekilde ayarlar.
-    private func focus(on route: GeneratedRoute) {
-        guard var rect = route.polylines.first?.boundingMapRect else { return }
-        for polyline in route.polylines.dropFirst() {
-            rect = rect.union(polyline.boundingMapRect)
+
+    /// Rotanın tamamını (bir miktar kenar payıyla) içine alan harita bölgesi.
+    private func boundingRect(of route: GeneratedRoute) -> MKMapRect {
+        let rect = route.polylines.reduce(MKMapRect.null) { $0.union($1.boundingMapRect) }
+        return rect.insetBy(dx: -rect.width * 0.15, dy: -rect.height * 0.15)
+    }
+}
+
+/// Panel düğmelerinin ortak içeriği. Arka planı düğme stili (cam) çizer;
+/// burada yalnızca simge ve metin yer alır.
+struct ButtonView: View {
+    var text: String
+    var symbol: String?
+    var isLoading = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if isLoading {
+                ProgressView()
+            } else if let symbol {
+                Image(systemName: symbol)
+            }
+            Text(text)
+                .fontWeight(.semibold)
+                .lineLimit(1)
         }
-        cameraPosition = .rect(rect.insetBy(dx: -rect.width * 0.15, dy: -rect.height * 0.15))
+        .frame(height: 36)
+        .frame(maxWidth: .infinity)
     }
 }
 
