@@ -9,6 +9,7 @@ import SwiftUI
 import WeatherKit
 
 struct HomeView: View {
+    @Environment(User.self) private var user
     @State private var locationManager = LocationManager()
     @State private var currentWeather: CurrentWeather?
     @State var timeOfDayMessage: String = "Ready to get moving?"
@@ -17,12 +18,17 @@ struct HomeView: View {
     var body: some View {
         ZStack {
             VStack{
+                Text("Hi, \(user.name)!")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.primary)
                 Text(timeOfDayMessage)
                     .font(.system(size: 30, weight: .bold))
                     .padding(.horizontal, 2)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                 if let location = locationManager.userLocation {
                     ForecastView(location: location)
+                } else {
+                    Text("Can't find your location")
                 }
             }
         }
@@ -60,4 +66,15 @@ struct HomeView: View {
 
 #Preview {
     HomeView()
+        .environment(
+            User(
+                name: "Alp",
+                sex: .male,
+                bday: .now,
+                heightCM: 1.8,
+                weightKG: 75,
+                targetDistance: 5,
+                motivation: .hobby
+            )
+        )
 }

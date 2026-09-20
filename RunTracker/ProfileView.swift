@@ -9,154 +9,221 @@ import SwiftUI
 import SwiftData
 import CoreLocation
 
-enum SortOption: Identifiable, CaseIterable {
-    case date
-    case distance
-    case duration
-    case pace
-    
-    var id: Self { self }
-    
-    var title: String {
-        switch self {
-        case .date:
-            return "By Date"
-        case .distance:
-            return "By Distance"
-        case .duration:
-            return "By Duration"
-        case .pace:
-            return "By Pace"
-        }
-    }
-}
-
 struct ProfileView: View {
-    @Query private var sessions: [RunSession]
-    /// `@Query` sonucu salt-okunur olduğundan, seçili seçeneğe göre
-    /// sıralanmış bir kopya döndürülür.
-    private var sortedSessions: [RunSession] {
-        switch selectedSortOption {
-        case .date:
-            return sessions.sorted { $0.startedAt > $1.startedAt }
-        case .distance:
-            return sessions.sorted { $0.distanceInKm > $1.distanceInKm }
-        case .duration:
-            return sessions.sorted { $0.duration > $1.duration }
-        case .pace:
-            // Temposu olmayan (ör. mesafesi sıfır) koşular sona alınır.
-            return sessions.sorted {
-                ($0.pace ?? .greatestFiniteMagnitude) < ($1.pace ?? .greatestFiniteMagnitude)
-            }
-        }
-    }
+    /// Onboarding'de oluşturulan kullanıcı; `RootView` environment'a koyar.
+    @Environment(User.self) private var user
+    /// Oturumlar doğrudan değil, kullanıcı ilişkisi üzerinden okunur;
+    /// böylece liste onboarding'de oluşturulan kullanıcıya bağlıdır.
     
-    @State private var selectedSortOption: SortOption = .date
+    @Query private var currentWeekSessions: [RunSession]
+    
+    init() {
+        _currentWeekSessions = Query(filter: RunSession.currentWeekPredicate(),
+                                     sort: \.startedAt)
+    }
     
     var body: some View {
         NavigationStack {
-            VStack {
-                List(sortedSessions) { session in
+            ScrollView {
+                VStack {
+                    profileBar()
+                    currentStats()
+                    InfoCard(title: "Life-time Stats", card: lifetimeStats)
+                    InfoCard(title:"This Week's Sessions", card: sessionsThisWeek)
+                    NavigationLink(destination: SessionListView()) {
+                        HStack {
+                            Text("All Sessions")
+                            Spacer()
+                            Image(systemName: "arrow.right")
+                        }
+                    }
+                    .padding()
+                    .background(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 15))
+                    .shadow(radius: 5)
+                }
+                .padding()
+                .navigationTitle("Profile")
+            }
+            .background(LinearGradient(colors: [.emerald, .emerald.opacity(0.1)], startPoint: .bottomTrailing, endPoint: .topLeading))
+        }
+    }
+    
+    @ViewBuilder
+    func profileBar() -> some View {
+        HStack{
+            Image(user.avatar.image)
+                .resizable()
+                .frame(width: 80, height: 80)
+                .clipShape(Circle())
+            VStack(alignment: .leading) {
+                Text(user.name)
+                    .font(.system(size: 20))
+                Text("Joined at: \(user.createdAt.formatted(date: .abbreviated, time: .omitted))")
+                    .font(.caption)
+                    .bold()
+            }
+            .frame(maxWidth: .infinity)
+            
+            NavigationLink(destination: EditProfileView()) {
+                Image(systemName: "person.badge.gearshape")
+                    .font(.system(size: 25))
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding()
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 15))
+        .shadow(radius: 5)
+    }
+    
+    @ViewBuilder
+    func currentStats() -> some View {
+        VStack {
+            let totalDistance = Measurement(value: currentWeekSessions.reduce(0) { $0 + $1.distanceMeasurement.value}, unit: UnitLength.meters)
+            let totalDistanceString = totalDistance.formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(2))))
+            let completionPercentage = totalDistance.converted(to: .kilometers).value / user.weeklyTarget.converted(to: .kilometers).value
+            HStack {
+                Image(systemName: "flag")
+                    .bold()
+                Text("Weekly goal")
+                    .bold()
+                Spacer()
+                Text(completionPercentage >= 100.0 ? "%100" : completionPercentage.formatted(.percent.precision(.fractionLength(1))))
+                    .bold()
+            }
+            HStack {
+                PercentageBarView(progress: completionPercentage)
+            }
+            HStack {
+                Text("\(totalDistanceString)")
+                Spacer()
+                Text("Target Distance: \(user.weeklyTarget.formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(0...2)))))")
+            }
+        }
+        .padding()
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 15))
+        .shadow(radius: 5)
+    }
+    
+    @ViewBuilder
+    func lifetimeStats() -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150))]){
+            let totalDistance = Measurement(value: user.sessions.reduce(0) { $0 + $1.distanceMeasurement.value }, unit: UnitLength.meters)
+            StatView(icon: "ruler", value: "\(totalDistance.formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(2)))))")
+            
+            let totalTime = user.sessions.reduce(0) { $0 + $1.duration }
+            StatView(icon: "timer", value: totalTime.mmss)
+        }
+    }
+    
+    @ViewBuilder
+    func sessionsThisWeek() -> some View {
+        VStack {
+            if !currentWeekSessions.isEmpty {
+                List(currentWeekSessions) { session in
                     RunSessionRow(session: session)
                 }
             }
-            .navigationTitle("Profile")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        Picker("sort", selection: $selectedSortOption) {
-                            ForEach(SortOption.allCases) { option in
-                                Text(option.title)
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down")
-                    }
-                }
+            else {
+                Text("No sessions this week!")
             }
         }
     }
 }
 
-/// Tek bir koşu kaydının özeti: tarih, mesafe, süre ve tempo.
-private struct RunSessionRow: View {
-    let session: RunSession
+struct RibbonView: View {
+    var body: some View {
+        
+    }
+}
+
+struct InfoCard<Card: View>: View {
+    var title: String
+    @ViewBuilder var card: () -> Card
+    var body: some View {
+        VStack {
+            Text(title)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .font(.title2)
+                .bold()
+            card()
+        }
+        .padding()
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 15))
+        .shadow(radius: 5)
+    }
+}
+
+struct PercentageBarView: View {
+    @State var progress: Double
     
     var body: some View {
-        NavigationLink(destination: RunSessionDetailView(session: session)) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    // Rotalı koşu ile serbest koşu simgeden ayırt edilir.
-                    Image(systemName: session.plannedDistance == nil ? "figure.run" : "map")
-                        .foregroundStyle(.tint)
-                    Text(session.startedAt, format: .dateTime.day().month().year().hour().minute())
-                        .font(.headline)
-                }
-                
-                HStack(spacing: 16) {
-                    Label(String(format: "%.2f km", session.distanceInKm), systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-                    Label(formatted(seconds: session.duration), systemImage: "stopwatch")
-                    if let pace = session.pace {
-                        Label("\(formatted(seconds: pace)) /km", systemImage: "speedometer")
-                    }
-                }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            }
-            .padding(.vertical, 4)
+        VStack(spacing: 10) {
+            // Progress bar showing percentage
+            ProgressView(value: progress, total: 1.0)
+                .tint(.emerald)
         }
+        .padding()
     }
+}
+
+
+struct StatView: View {
+    let icon: String
+    let value: String
     
-    /// Süreyi dk:sn (bir saati aşarsa sa:dk:sn) biçiminde yazar.
-    private func formatted(seconds: TimeInterval) -> String {
-        Duration.seconds(seconds).formatted(
-            .time(pattern: seconds < 3600 ? .minuteSecond : .hourMinuteSecond)
-        )
+    var body: some View {
+        VStack(alignment: .leading) {
+            Image(systemName: icon)
+            Text(value)
+                .font(.system(size: 30))
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 40)
+        .padding()
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+extension TimeInterval {
+    var mmss: String {
+        let totalSeconds = Int(self)
+        let minutes = totalSeconds / 60
+        let seconds = totalSeconds % 60
+        return String(format: "%02d:%02d", minutes, seconds)
     }
 }
 
 #Preview {
     let container = try! ModelContainer(
-        for: RunSession.self,
+        for: User.self, RunSession.self, TraveledPath.self,
         configurations: ModelConfiguration(isStoredInMemoryOnly: true)
     )
-
-    /// İstenen uzunlukta (yaklaşık), kuzeye doğru düz bir çizgiden oluşan
-    /// tek segment üretir. `RunSession.distance` segmentlerden hesaplandığı
-    /// için örnek mesafeler böyle verilir.
-    func straightSegment(meters: Double) -> [CLLocationCoordinate2D] {
-        let start = CLLocationCoordinate2D(latitude: 41.0082, longitude: 28.9784)
-        // 1 derece enlem ~ 111.320 m
-        let end = CLLocationCoordinate2D(latitude: start.latitude + meters / 111_320, longitude: start.longitude)
-        return [start, end]
-    }
-
-    // (mesafe m, süre sn, planlanan mesafe) — tempo/mesafe/süre sıralamaları
-    // ayırt edilebilsin diye kasıtlı olarak karışık değerler.
-    let samples: [(Double, TimeInterval, Double?)] = [
-        (5_200, 1_820, nil),      // 5.2 km, ~5:50 /km
-        (3_100, 950, 3_000),      // kısa ve hızlı, rotalı
-        (10_050, 3_620, 10_000),  // 10 km, rotalı
-        (7_400, 2_590, nil),
-        (4_800, 1_450, nil),      // hızlı tempo
-        (8_900, 3_300, 9_000),
-        (2_300, 900, nil),        // en kısa mesafe
-        (6_500, 2_210, nil),
-        (12_100, 4_900, 12_000),  // en uzun, rotalı
-        (0, 600, nil),            // mesafesiz koşu: pace == nil
-    ]
-
-    for (index, sample) in samples.enumerated() {
-        let end = Calendar.current.date(byAdding: .day, value: -index, to: .now)!
-        let session = RunSession(
-            startedAt: end.addingTimeInterval(-sample.1),
-            endedAt: end,
-            segments: sample.0 > 0 ? [straightSegment(meters: sample.0)] : [],
-            plannedDistance: sample.2
-        )
-        container.mainContext.insert(session)
-    }
-
+    let user = User(
+        name: "Alp",
+        sex: .male,
+        bday: .now,
+        heightCM: 180,
+        weightKG: 75,
+        targetDistance: 5,
+        motivation: .hobby
+    )
+    let session = RunSession(
+        startedAt: .now.addingTimeInterval(-30 * 60),
+        segments: [[
+            CLLocationCoordinate2D(latitude: 41.0082, longitude: 28.9784),
+            CLLocationCoordinate2D(latitude: 41.0122, longitude: 28.9700),
+            CLLocationCoordinate2D(latitude: 41.0160, longitude: 28.9784)
+        ]]
+    )
+    container.mainContext.insert(user)
+    container.mainContext.insert(session)
+    session.user = user
+    
     return ProfileView()
+        .environment(user)
         .modelContainer(container)
 }

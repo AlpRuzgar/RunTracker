@@ -21,6 +21,7 @@ struct NavigationView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Query private var users: [User]
 
     @State private var locationManager = LocationManager()
     @State private var navigation = NavigationViewModel()
@@ -156,15 +157,15 @@ struct NavigationView: View {
             segments: session.segments
         )
         session.traveledPath = path
+        session.user = users.first
         modelContext.insert(session)
         navigation.stop()
         dismiss()
     }
 
-    /// Mesafeyi kullanıcı dostu yazar: 1 km altında metre, üstünde km.
+    /// Mesafeyi sistemin varsayılan birimiyle yazar.
     private func formatted(meters: Double) -> String {
-        meters < 1000
-            ? String(format: "%.0f m", meters)
-            : String(format: "%.2f km", meters / 1000)
+        Measurement(value: meters, unit: UnitLength.meters)
+            .formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(2))))
     }
 }

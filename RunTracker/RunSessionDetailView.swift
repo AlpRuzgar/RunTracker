@@ -16,7 +16,7 @@ struct RunSessionDetailView: View {
                 Map {
                     RunRouteOverlay(session)
                 }
-                Text("Mesafe: \(session.distanceInKm)")
+                Text("Mesafe: \(session.distanceMeasurement.formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(2)))))")
                 Text("Süre: \(session.formatted(seconds: session.duration))")
                 // Kaydedilmiş yol varsa aynı yol yeniden koşulabilir.
                 if let path = session.traveledPath {

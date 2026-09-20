@@ -8,6 +8,25 @@
 import SwiftUI
 import CoreLocation
 import WeatherKit
+import MapKit
+
+extension CLLocation {
+    func getCityDistrict() async throws -> String {
+        let geocoder = CLGeocoder()
+        let placemarks = try await geocoder.reverseGeocodeLocation(self)
+        
+        guard let placemark = placemarks.first else {
+            throw NSError(domain: "Geocoding", code: 0, userInfo: [NSLocalizedDescriptionKey: "Konum bulunamadı"])
+        }
+        
+        // Şehir
+        let city = placemark.locality ?? ""
+        // İlçe / semt
+        let district = placemark.subLocality ?? ""
+        
+        return "\(district), \(city)"
+    }
+}
 
 struct ForecastView: View {
     @State var location: CLLocation
@@ -16,11 +35,13 @@ struct ForecastView: View {
     @State var backgroundColors: [Color] = [.white]
     @State var hourTextColor: Color = .black
     
+    @State private var district: String = ""
+    
     var body: some View {
         GlassEffectContainer(spacing: 20) {
             VStack(spacing: 16) {
                 if let currentWeather {
-                    CurrentWeatherView(weather: currentWeather)
+                    CurrentWeatherView(weather: currentWeather, district: district)
                         .padding([.horizontal, .top])
                         .transition(.blurReplace.combined(with: .move(edge: .top)))
                     if let hourlyForecast {
@@ -58,11 +79,13 @@ struct ForecastView: View {
         .task {
             let current = try? await WeatherService.shared.weather(for: location, including: .current)
             let hourly = try? await WeatherService.shared.weather(for: location, including: .hourly)
+            let city = (try? await location.getCityDistrict()) ?? ""
             withAnimation(.spring(duration: 0.7)) {
                 currentWeather = current
                 hourlyForecast = hourly
                 backgroundColors = current!.isDaylight ? [.blue, .cyan, .teal] : [.midnight.exposureAdjust(2.5), .midnight]
                 hourTextColor = current!.isDaylight ? .black : .white
+                district = city
             }
         }
     }
@@ -70,7 +93,7 @@ struct ForecastView: View {
 
 struct CurrentWeatherView: View {
     let weather: CurrentWeather
-
+    let district: String
     private var temperatureFormat: Measurement<UnitTemperature>.FormatStyle {
         .measurement(width: .abbreviated, numberFormatStyle: .number.precision(.fractionLength(0)))
     }
@@ -83,7 +106,9 @@ struct CurrentWeatherView: View {
         VStack(spacing: 12) {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(weather.temperature, format: temperatureFormat)
+                    Text(district)
+                    Text(weather.date.formatted(date: .abbreviated, time: .shortened))
+                    Text(weather.temperature.formatted(temperatureFormat))
                         .font(.system(size: 48, weight: .semibold, design: .rounded))
                         .contentTransition(.numericText())
                     Text("Feels like \(weather.apparentTemperature.formatted(temperatureFormat))")
@@ -200,5 +225,5 @@ struct HourWeatherView: View {
 }
 
 #Preview {
-    ForecastView(location: CLLocation(latitude: 37.7749, longitude: -122.4194))
+    ForecastView(location: CLLocation(latitude: 41, longitude: 28))
 }

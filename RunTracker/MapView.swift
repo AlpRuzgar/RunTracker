@@ -8,19 +8,10 @@
 import SwiftUI
 import MapKit
 
-enum generationState {
-    case idle
-    case inProgress
-    case done
-}
-
 struct MapView: View {
-    @State private var routeGenerator = RouteGenerator()
+    @State private var routes = RouteViewModel()
     @State private var locationManager = LocationManager()
     @State private var distance: Double = 0.0
-    @State private var state: generationState = .idle
-    @State private var generatedRoute: GeneratedRoute?
-    @State private var generationFailed = false
     @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
     @FocusState private var isDistanceFocused: Bool
 
@@ -28,7 +19,7 @@ struct MapView: View {
         NavigationStack {
             Map(position: $cameraPosition) {
                 UserAnnotation()
-                if let route = generatedRoute {
+                if let route = routes.route {
                     ForEach(route.polylines, id: \.self) { polyline in
                         MapPolyline(polyline)
                             .stroke(.blue, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
@@ -49,10 +40,13 @@ struct MapView: View {
                 controlPanel
                     .padding()
             }
-            // Mesafe değişince eski rotalar geçersizleşir; geçmişte kalırlarsa
-            // üretim tıkandığında yanlış mesafeli rotalar gösterilir.
-            .onChange(of: distance) {
-                routeGenerator.reset()
+            // Yeni rota gelince kamera onu tamamen gösterecek şekilde kayar.
+            // Üretim sürerken gösterilen önceki rotanın kimliği değişmez.
+            .onChange(of: routes.route?.id) {
+                guard case .ready(let route) = routes.state else { return }
+                withAnimation(.easeInOut(duration: 0.8)) {
+                    cameraPosition = .rect(boundingRect(of: route))
+                }
             }
         }
     }
@@ -63,13 +57,13 @@ struct MapView: View {
     private var controlPanel: some View {
         GlassEffectContainer(spacing: 20) {
             VStack(spacing: 12) {
-                if let route = generatedRoute {
+                if let route = routes.route {
                     routeCard(route)
                         .transition(.scale(scale: 0.8).combined(with: .opacity))
                 }
 
-                if generationFailed {
-                    Label("No route found. Try a different distance.", systemImage: "exclamationmark.triangle.fill")
+                if let errorMessage {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.red)
                         .padding(.vertical, 8)
@@ -92,21 +86,22 @@ struct MapView: View {
                     })
 
                     Button {
-                        generateRoute()
+                        isDistanceFocused = false
+                        routes.generate(from: locationManager.userLocationCoordinate2D, targetKilometers: distance)
                     } label: {
                         ButtonView(
-                            text: generatedRoute == nil ? "Generate Route" : "Try Another",
-                            symbol: "sparkles",
-                            isLoading: state == .inProgress
+                            text: generateButtonText,
+                            symbol: routes.cooldownRemaining > 0 ? "hourglass" : "sparkles",
+                            isLoading: routes.isGenerating
                         )
                     }
                     .buttonStyle(.glassProminent)
                     .tint(.green)
-                    .disabled(distance <= 0 || state == .inProgress)
+                    .disabled(distance <= 0 || routes.isGenerating || routes.cooldownRemaining > 0)
                 }
 
                 // Rota hazır olunca navigasyonlu koşu başlatılabilir.
-                if let route = generatedRoute {
+                if case .ready(let route) = routes.state {
                     NavigationLink {
                         NavigationView(route: route)
                     } label: {
@@ -121,9 +116,21 @@ struct MapView: View {
                 }
             }
         }
-        .animation(.spring(duration: 0.45, bounce: 0.25), value: generatedRoute?.id)
-        .animation(.spring(duration: 0.45, bounce: 0.25), value: generationFailed)
-        .animation(.spring(duration: 0.45, bounce: 0.25), value: state)
+        .animation(.spring(duration: 0.45, bounce: 0.25), value: routes.route?.id)
+        .animation(.spring(duration: 0.45, bounce: 0.25), value: errorMessage)
+        .animation(.spring(duration: 0.45, bounce: 0.25), value: routes.isGenerating)
+    }
+
+    /// Başarısız üretimin kullanıcıya gösterilecek açıklaması.
+    private var errorMessage: String? {
+        guard case .failed(let error) = routes.state else { return nil }
+        return error.localizedDescription
+    }
+
+    /// Bekleme (cooldown) sürerken düğme geri sayımı gösterir.
+    private var generateButtonText: String {
+        if routes.cooldownRemaining > 0 { return "Wait \(routes.cooldownRemaining)s" }
+        return routes.route == nil ? "Generate Route" : "Try Another"
     }
 
     /// Mesafe girişi: cam kapsül içinde ikon, alan ve birim.
@@ -145,50 +152,19 @@ struct MapView: View {
         .padding(.vertical, 12)
         .padding(.horizontal, 18)
         .glassEffect()
-
     }
 
-    /// Üretilen rotanın özeti.
+    /// Üretilen rotanın özeti. Yedek stratejiyle gelen git-gel rota ayrıca belirtilir.
     private func routeCard(_ route: GeneratedRoute) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-            Text(String(format: "Route found — %.2f km", route.distanceInKm))
+            Image(systemName: route.kind == .loop ? "checkmark.circle.fill" : "arrow.left.arrow.right.circle.fill")
+                .foregroundStyle(route.kind == .loop ? .green : .orange)
+            Text("\(route.kind == .loop ? "Loop" : "Out & back") — \(route.distanceMeasurement.formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(2)))))")
                 .font(.subheadline.weight(.semibold))
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 16)
-        .glassEffect(.regular.tint(.green.opacity(0.2)))
-    }
-
-    /// Kullanıcının konumundan, girilen mesafede bir döngü rotası üretir ve
-    /// kamerayı rotayı gösterecek şekilde ayarlar.
-    private func generateRoute() {
-        isDistanceFocused = false
-        guard let start = locationManager.userLocationCoordinate2D else {
-            generationFailed = true
-            return
-        }
-        state = .inProgress
-        generationFailed = false
-
-        Task {
-            do {
-                let route = try await routeGenerator.generateLoop(
-                    from: start,
-                    targetDistanceMeters: distance * 1000
-                )
-                generatedRoute = route
-                state = .done
-                withAnimation(.easeInOut(duration: 0.8)) {
-                    cameraPosition = .rect(boundingRect(of: route))
-                }
-            } catch {
-                generatedRoute = nil
-                state = .idle
-                generationFailed = true
-            }
-        }
+        .glassEffect(.regular.tint((route.kind == .loop ? Color.green : .orange).opacity(0.2)))
     }
 
     /// Rotanın tamamını (bir miktar kenar payıyla) içine alan harita bölgesi.

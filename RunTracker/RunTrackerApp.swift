@@ -12,8 +12,24 @@ import SwiftData
 struct RunTrackerApp: App {
     var body: some Scene {
         WindowGroup {
-                MainView()
+            RootView()
         }
-        .modelContainer(for: [RunSession.self, TraveledPath.self])
+        .modelContainer(for: [RunSession.self, TraveledPath.self, User.self])
+    }
+}
+
+/// Henüz kullanıcı oluşturulmamışsa (ilk açılış) onboarding anketini,
+/// aksi halde uygulamanın ana ekranını gösterir. Oluşturulan kullanıcı
+/// alt görünümlere environment üzerinden verilir.
+private struct RootView: View {
+    @Query private var users: [User]
+
+    var body: some View {
+        if let user = users.first {
+            MainView()
+                .environment(user)
+        } else {
+            UserQAView()
+        }
     }
 }

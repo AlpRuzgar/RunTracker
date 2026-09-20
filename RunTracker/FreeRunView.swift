@@ -15,6 +15,7 @@ import SwiftData
 struct FreeRunView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Query private var users: [User]
 
     @State private var locationManager = LocationManager()
     @State private var camera = RunCamera()
@@ -23,6 +24,10 @@ struct FreeRunView: View {
     /// Şu ana kadar koşulan mesafe (metre).
     private var distance: Double {
         RunSession.distance(of: locationManager.pathSegments)
+    }
+
+    private var distanceMeasurement: Measurement<UnitLength> {
+        Measurement(value: distance, unit: .meters)
     }
 
     var body: some View {
@@ -60,7 +65,7 @@ struct FreeRunView: View {
     private var statsBar: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(String(format: "%.2f km", distance / 1000))
+                Text(distanceMeasurement.formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(2)))))
                     .font(.headline.monospacedDigit())
                 Text(startedAt, style: .timer)
                     .font(.subheadline.monospacedDigit())
@@ -107,6 +112,7 @@ struct FreeRunView: View {
             segments: session.segments
         )
         session.traveledPath = path
+        session.user = users.first
         modelContext.insert(session)
         dismiss()
     }

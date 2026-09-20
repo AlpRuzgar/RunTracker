@@ -30,10 +30,16 @@ final class RunSession {
 
     var traveledPath: TraveledPath?
 
+    /// Koşuyu yapan kullanıcı; ters ilişki `User.sessions` üzerinde tanımlı.
+    var user: User?
+
     var duration: TimeInterval { endedAt.timeIntervalSince(startedAt) }
     var distanceInKm: Double { distance / 1000 }
+    var distanceMeasurement: Measurement<UnitLength> {
+        Measurement(value: distance, unit: .meters)
+    }
     var pace: TimeInterval? { distance > 0 ? duration / distanceInKm : nil }
-
+    
     init(
         startedAt: Date,
         endedAt: Date = .now,
@@ -63,6 +69,16 @@ final class RunSession {
         )
     }
 }
+
+extension RunSession {
+    static func currentWeekPredicate() -> Predicate<RunSession> {
+        let interval = Calendar.current.dateInterval(of: .weekOfYear, for: Date())!
+        let start = interval.start
+        let end = interval.end
+        return #Predicate<RunSession> { $0.startedAt >= start && $0.startedAt < end }
+    }
+}
+
 // MARK: - Harita katmanı
 
 /// Kullanıcının gerçekten geçtiği yol. Planlanan rotadan (mavi) ayırt edilsin

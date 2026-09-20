@@ -27,4 +27,15 @@ struct MainView: View {
 
 #Preview {
     MainView()
+        .environment(
+            User(
+                name: "Alp",
+                sex: .male,
+                bday: .now,
+                heightCM: 1.8,
+                weightKG: 75,
+                targetDistance: 5,
+                motivation: .hobby
+            )
+        )
 }
