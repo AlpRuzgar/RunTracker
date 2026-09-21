@@ -188,8 +188,18 @@ struct LoopShapeTests {
 
 struct BearingAndDetourTests {
     @Test func leastUsedBearingIsOppositeOfSingleUsedBearing() {
-        #expect(BearingPlanner.leastUsedBearing(avoiding: [90]) == 270)
-        #expect(BearingPlanner.leastUsedBearing(avoiding: []) == nil)
+        #expect(BearingPlanner.leastUsed(avoiding: [90])?.bearing == 270)
+        #expect(BearingPlanner.leastUsed(avoiding: []) == nil)
+    }
+
+    /// Serbest yayın genişliği de bildirilir: sapma payı buna göre açılır.
+    /// Tek kullanılmış yön varsa ters yönde 180°, karşılıklı iki yön varsa
+    /// aralarındaki dikte 90° boşluk vardır.
+    @Test func leastUsedBearingReportsHowMuchRoomItFound() throws {
+        #expect(BearingPlanner.leastUsed(avoiding: [90])?.clearance == 180)
+
+        let crowded = try #require(BearingPlanner.leastUsed(avoiding: [0, 180]))
+        #expect(abs(crowded.clearance - 90) < 1e-9)
     }
 
     /// Altın açı adımı: ilk dört deneme çember üzerinde birbirinden en az ~50° uzak.
@@ -205,15 +215,33 @@ struct BearingAndDetourTests {
     /// Her bölge (göz) kendi katsayısını öğrenir; uzak bölge varsayılanla başlar.
     @Test func detourEstimateLearnsPerRegion() {
         var estimate = DetourEstimate()
-        #expect(estimate.factor(near: origin) == DetourEstimate.initial)
+        #expect(estimate.factor(near: origin, bearing: 0) == DetourEstimate.initial)
 
-        estimate.observe(1.6, at: origin)
-        #expect(estimate.factor(near: origin) == 1.6)
+        estimate.observe(1.6, at: origin, bearing: 0)
+        #expect(estimate.factor(near: origin, bearing: 0) == 1.6)
 
-        estimate.observe(1.4, at: origin)
-        #expect(abs(estimate.factor(near: origin) - 1.5) < 1e-9)
+        estimate.observe(1.4, at: origin, bearing: 0)
+        #expect(abs(estimate.factor(near: origin, bearing: 0) - 1.5) < 1e-9)
 
-        #expect(estimate.factor(near: point(east: 10_000, north: 0)) == DetourEstimate.initial)
+        #expect(estimate.factor(near: point(east: 10_000, north: 0), bearing: 0) == DetourEstimate.initial)
+    }
+
+    /// Katsayı yöne göre de ayrışır: bir yanda sahil boyunca dolanan sokaklar,
+    /// diğer yanda düzgün ızgara. Henüz ölçülmemiş yön, bölgenin ortalamasıyla
+    /// başlar — varsayılanla değil.
+    @Test func detourEstimateLearnsPerDirection() {
+        var estimate = DetourEstimate()
+        estimate.observe(2.0, at: origin, bearing: 0)
+
+        // Ölçülen yön kendi değerini tutar.
+        #expect(estimate.factor(near: origin, bearing: 10) == 2.0)
+        // Karşı yön ölçülmedi: bölge ortalamasını devralır.
+        #expect(estimate.factor(near: origin, bearing: 180) == 2.0)
+
+        estimate.observe(1.2, at: origin, bearing: 180)
+        #expect(estimate.factor(near: origin, bearing: 180) == 1.2)
+        // Kuzey ölçümü güneyin ölçümünden etkilenmez.
+        #expect(estimate.factor(near: origin, bearing: 10) == 2.0)
     }
 
     /// Bütçe sabit bir sayı değil; planın en kötü maliyetinden türer ve plan

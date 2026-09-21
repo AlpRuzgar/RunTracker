@@ -23,11 +23,17 @@ struct RunTrackerApp: App {
 /// alt görünümlere environment üzerinden verilir.
 private struct RootView: View {
     @Query private var users: [User]
+    /// Rota üretimi uygulama genelinde TEKTİR: MapKit'in hız kotası, bacak
+    /// cache'i ve "son rotalar" geçmişi tek bir yerde toplanır. Sekmeler kendi
+    /// kopyalarını yarattığında kota iki katına çıkıp throttle'a giriyor,
+    /// geçmişler ayrıldığı için de aynı rota iki kez üretilebiliyordu.
+    @State private var routes = RouteViewModel()
 
     var body: some View {
         if let user = users.first {
             MainView()
                 .environment(user)
+                .environment(routes)
         } else {
             UserQAView()
         }

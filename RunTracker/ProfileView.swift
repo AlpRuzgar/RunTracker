@@ -31,22 +31,11 @@ struct ProfileView: View {
                     currentStats()
                     InfoCard(title: "Life-time Stats", card: lifetimeStats)
                     InfoCard(title:"This Week's Sessions", card: sessionsThisWeek)
-                    NavigationLink(destination: SessionListView()) {
-                        HStack {
-                            Text("All Sessions")
-                            Spacer()
-                            Image(systemName: "arrow.right")
-                        }
-                    }
-                    .padding()
-                    .background(colorScheme == .dark ? .steelGray : .white)
-                    .clipShape(RoundedRectangle(cornerRadius: 15))
-                    .shadow(radius: 5)
                 }
                 .padding()
                 .navigationTitle("Profile")
             }
-            .background(LinearGradient(colors: [.emerald, .emerald.opacity(0.1)], startPoint: .bottomTrailing, endPoint: .topLeading))
+            .background(LinearGradient(colors: [.lightBlue, .lightBlue.opacity(0.1)], startPoint: .bottomTrailing, endPoint: .topLeading))
         }
     }
     
@@ -112,10 +101,9 @@ struct ProfileView: View {
     func lifetimeStats() -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150))]){
             let totalDistance = Measurement(value: user.sessions.reduce(0) { $0 + $1.distanceMeasurement.value }, unit: UnitLength.meters)
-            StatView(icon: "ruler", value: "\(totalDistance.formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(2)))))")
-            
-            let totalTime = user.sessions.reduce(0) { $0 + $1.duration }
-            StatView(icon: "timer", value: totalTime.mmss)
+            StatView(icon: "ruler", value: "\(totalDistance.converted(to: .kilometers).formatted())")
+            StatView(icon: "timer", value: user.totalDuration.mmss)
+            StatView(icon: "figure.run", value: user.avgPace.mmss)
         }
     }
     
@@ -125,6 +113,13 @@ struct ProfileView: View {
             if !currentWeekSessions.isEmpty {
                 List(currentWeekSessions) { session in
                     RunSessionRow(session: session)
+                }
+                NavigationLink(destination: SessionListView()) {
+                    HStack {
+                        Text("All Sessions")
+                        Spacer()
+                        Image(systemName: "arrow.right")
+                    }
                 }
             }
             else {
@@ -150,6 +145,7 @@ struct InfoCard<Card: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .font(.title2)
                 .bold()
+                .padding(.bottom)
             card()
         }
         .padding()
@@ -166,7 +162,7 @@ struct PercentageBarView: View {
         VStack(spacing: 10) {
             // Progress bar showing percentage
             ProgressView(value: progress, total: 1.0)
-                .tint(.emerald)
+                .tint(.lightBlue)
         }
         .padding()
     }
@@ -197,35 +193,4 @@ extension TimeInterval {
         let seconds = totalSeconds % 60
         return String(format: "%02d:%02d", minutes, seconds)
     }
-}
-
-#Preview {
-    let container = try! ModelContainer(
-        for: User.self, RunSession.self, TraveledPath.self,
-        configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-    )
-    let user = User(
-        name: "Alp",
-        sex: .male,
-        bday: .now,
-        heightCM: 180,
-        weightKG: 75,
-        targetDistance: 5,
-        motivation: .hobby
-    )
-    let session = RunSession(
-        startedAt: .now.addingTimeInterval(-30 * 60),
-        segments: [[
-            CLLocationCoordinate2D(latitude: 41.0082, longitude: 28.9784),
-            CLLocationCoordinate2D(latitude: 41.0122, longitude: 28.9700),
-            CLLocationCoordinate2D(latitude: 41.0160, longitude: 28.9784)
-        ]]
-    )
-    container.mainContext.insert(user)
-    container.mainContext.insert(session)
-    session.user = user
-    
-    return ProfileView()
-        .environment(user)
-        .modelContainer(container)
 }

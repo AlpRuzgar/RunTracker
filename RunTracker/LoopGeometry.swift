@@ -74,14 +74,15 @@ nonisolated struct LoopShape: Equatable {
         }
     }
 
-    /// Döngü şekli. RASTGELE kısım yalnızca burası: köşe sayısı, basıklık,
-    /// dönüş yönü ve köşe başına küçük sapma. Açılış yönü dışarıdan gelir;
-    /// onun deterministik kısmı `BearingPlanner`'da.
+    /// Döngü şekli. RASTGELE kısım yalnızca burası: köşe sayısı, iki yanın
+    /// basıklığı, dönüş yönü ve köşe başına açısal/ışınsal sapma. Açılış yönü
+    /// dışarıdan gelir; onun deterministik kısmı `BearingPlanner`'da.
     ///
     /// Köşeler bir elipsin üzerindedir; başlangıç, elipsin açılış yönünün tam
     /// tersindeki ucunda durur. Köşelerin merkez etrafındaki açısı tek yönde
-    /// arttığı ve sapma yalnızca merkeze uzaklığı değiştirdiği için çokgen her
-    /// zaman yıldız biçimlidir: kuş uçuşu iskelet kendini asla kesmez.
+    /// arttığı için çokgen her zaman yıldız biçimlidir: kuş uçuşu iskelet
+    /// kendini asla kesmez. Aşağıdaki üç sapmanın hiçbiri bu güvenceyi bozmaz
+    /// (her birinin yanında neden bozmadığı yazılı).
     static func loop(
         openingBearing bearing: Double,
         vertexCountRange: ClosedRange<Int>,
@@ -89,15 +90,30 @@ nonisolated struct LoopShape: Equatable {
     ) -> LoopShape {
         let vertexCount = Int.random(in: vertexCountRange, using: &random)
         // Enine eksenin boyuna oranı: <1 açılış yönünde uzanan dar döngü,
-        // >1 başlangıca yakın kalan geniş döngü.
-        let aspect = Double.random(in: 0.65...1.35, using: &random)
+        // >1 başlangıca yakın kalan geniş döngü. İki yan AYRI çekilir: eşit
+        // olduklarında simetrik elips, ayrıldıklarında bir yana yatık "virgül"
+        // çıkar. Tek bir oranla aynı yerden üretilen her rota aynı simetrik
+        // elipse hapsoluyor, sokak ağı da onları aynı ana caddelere oturtuyordu.
+        //
+        // Yıldız biçim korunur: pivot etrafındaki açı atan2(oran·sinθ, cosθ)'dır,
+        // her iki yanda da θ ile kesin artar ve oranın değiştiği yerde (sinθ = 0)
+        // iki yan aynı açıyı verir.
+        let leftAspect = Double.random(in: 0.55...1.45, using: &random)
+        let rightAspect = Double.random(in: 0.55...1.45, using: &random)
         // +1: saat yönünde (önce açılış yönünün soluna gidilir).
         let turn: Double = Bool.random(using: &random) ? 1 : -1
 
         let offsets = (1..<vertexCount).map { i -> Offset in
-            let angle = Double.pi + turn * 2 * .pi * Double(i) / Double(vertexCount)
-            let wobble = Double.random(in: 0.88...1.12, using: &random)
-            return offset(along: 1 + wobble * cos(angle), across: wobble * aspect * sin(angle), bearing: bearing)
+            // Açısal sapma ±0.25 adım: ardışık köşelerin sırası (i + sapma) en az
+            // 0.5 arayla arttığı için açı kesin artan kalır, ama köşeler düzgün
+            // çokgenin üstünden kayar.
+            let step = Double(i) + Double.random(in: -0.25...0.25, using: &random)
+            let angle = Double.pi + turn * 2 * .pi * step / Double(vertexCount)
+            // Işınsal sapma yalnızca pivota uzaklığı değiştirir, açıyı değil.
+            let wobble = Double.random(in: 0.85...1.15, using: &random)
+            let across = sin(angle)
+            let aspect = across >= 0 ? rightAspect : leftAspect
+            return offset(along: 1 + wobble * cos(angle), across: wobble * aspect * across, bearing: bearing)
         }
 
         return LoopShape(
@@ -105,6 +121,13 @@ nonisolated struct LoopShape: Equatable {
             pivot: offset(along: 1, across: 0, bearing: bearing),
             openingBearing: bearing
         )
+    }
+
+    /// Şeklin kuş uçuşu iskeleti: başlangıçtan çıkıp waypoint'leri dolaşıp
+    /// başlangıca dönen kapalı çokgen. Ağa gitmeden benzerlik ölçmek için
+    /// (bkz. `RouteGenerator.isNearDuplicate`).
+    func skeleton(from start: CLLocationCoordinate2D, radius: Double) -> [CLLocationCoordinate2D] {
+        [start] + waypoints(from: start, radius: radius) + [start]
     }
 
     /// Yedek strateji: tek dönüş noktalı git-gel rota (P₁ = 2).
@@ -259,16 +282,23 @@ nonisolated struct RadiusSolver {
 ///   uzak yöndür. Ardışık denemeler temel yöne altın açı (≈137.5°) eklenerek
 ///   dağıtılır: n deneme çemberi olabildiğince düzgün tarar, iki deneme aynı yöne
 ///   düşmez. Bir yönde deniz/otoyol varsa sıradaki deneme bambaşka bir yöne bakar.
-/// - RASTGELE: Geçmiş yoksa temel yön; her denemeye eklenen küçük sapma (jitter).
+/// - RASTGELE: Geçmiş yoksa temel yön; her denemeye eklenen sapma (jitter).
 nonisolated enum BearingPlanner {
     static let goldenAngle = 137.507_764
 
-    /// Kullanılmış yönlerin en yakınına en uzak yön (1° çözünürlük); geçmiş yoksa `nil`.
-    static func leastUsedBearing(avoiding used: [Double]) -> Double? {
+    /// Kullanılmış yönlere en uzak yön (1° çözünürlük) ve o yönün en yakın
+    /// kullanılmış yöne uzaklığı; geçmiş yoksa `nil`.
+    ///
+    /// `clearance` da döndürülür çünkü sapma payı buna göre açılmalıdır: tek bir
+    /// önceki rota varsa ters yönde 180°'lik serbest yay vardır ve sabit ±20° ile
+    /// hep o yayın tam ortasına çakılmak, aynı yer + aynı mesafe için hep aynı
+    /// rotayı üretir.
+    static func leastUsed(avoiding used: [Double]) -> (bearing: Double, clearance: Double)? {
         guard !used.isEmpty else { return nil }
-        return stride(from: 0.0, to: 360.0, by: 1.0).max { a, b in
+        guard let best = stride(from: 0.0, to: 360.0, by: 1.0).max(by: { a, b in
             clearance(of: a, from: used) < clearance(of: b, from: used)
-        }
+        }) else { return nil }
+        return (best, clearance(of: best, from: used))
     }
 
     static func bearing(forAttempt attempt: Int, base: Double, jitter: Double) -> Double {
@@ -285,13 +315,21 @@ nonisolated enum BearingPlanner {
 
 /// Bölgedeki sokak ağının dolambaç katsayısı (yol mesafesi / kuş uçuşu).
 ///
-/// Dünya ~3 km'lik gözlere bölünür; her göz kendi katsayısını öğrenir. İlk rotada
-/// varsayılanla başlanır, her ölçümle güncellenir. Sonraki rotaların ilk yarıçap
-/// tahmini böylece hedefe çok yakın düşer; düzeltme turu, yani ağ isteği azalır.
+/// Dünya ~3 km'lik gözlere, her göz de 8 yön dilimine bölünür; her dilim kendi
+/// katsayısını öğrenir. İlk rotada varsayılanla başlanır, her ölçümle güncellenir.
+/// Sonraki rotaların ilk yarıçap tahmini böylece hedefe çok yakın düşer; düzeltme
+/// turu, yani ağ isteği azalır.
+///
+/// **Neden yön dilimi?** Dolambaç katsayısı bölge içinde yöne göre ciddi değişir:
+/// bir yanda deniz/otoyol boyunca dolanan sokaklar, diğer yanda düzgün ızgara.
+/// Tek bir ortalama, ilk tahmini yarısı yönde sistematik olarak şaşırtıyor ve
+/// her seferinde bir düzeltme turu (bacak sayısı kadar istek) maliyeti çıkarıyordu.
+/// Henüz ölçülmemiş dilim, bölgenin ortalamasıyla başlar; o da yoksa varsayılanla.
+///
 /// Öğrenilenler `learnedFactors` ile dışarı verilip oturumlar arasında saklanır
-/// (bkz. `DetourStoring`): bilinen bölgede uygulama yeniden açıldığında bile çoğu
-/// üretim tek turda biter. Kullanıcının koştuğu bölge sayısı küçük olduğu için
-/// sözlük büyümez; sınır gerekmez.
+/// (bkz. `GenerationStoring`): bilinen bölgede uygulama yeniden açıldığında bile
+/// çoğu üretim tek turda biter. Kullanıcının koştuğu bölge sayısı küçük olduğu
+/// için sözlük büyümez; sınır gerekmez.
 nonisolated struct DetourEstimate {
     /// Şehir içi yürüme ağlarında yol/kuş uçuşu oranı tipik olarak 1.2–1.4 arasıdır.
     static let initial = 1.3
@@ -301,22 +339,36 @@ nonisolated struct DetourEstimate {
     /// Göz kenarı (derece; enlemde ~3.3 km). Bir bölgenin sokak dokusu bu
     /// ölçekte kabaca aynıdır.
     static let cellDegrees = 0.03
+    /// Göz başına yön dilimi (45°'lik sekizde birler).
+    static let sectorCount = 8
 
-    /// Göz anahtarı → öğrenilen katsayı. Anahtar `String` tutulur ki sözlük
-    /// dönüştürülmeden plist/UserDefaults'a yazılabilsin.
+    /// Göz/dilim anahtarı → öğrenilen katsayı. Anahtar `String` tutulur ki sözlük
+    /// dönüştürülmeden plist/UserDefaults'a yazılabilsin. Göz anahtarları
+    /// ("x,y") eski sürümlerle aynı biçimde kaldığı için saklanmış veriler
+    /// olduğu gibi okunmaya devam eder.
     private(set) var learnedFactors: [String: Double]
 
     init(learnedFactors: [String: Double] = [:]) {
         self.learnedFactors = learnedFactors
     }
 
-    func factor(near start: CLLocationCoordinate2D) -> Double {
-        learnedFactors[Self.cellKey(of: start)] ?? Self.initial
+    func factor(near start: CLLocationCoordinate2D, bearing: Double) -> Double {
+        let cell = Self.cellKey(of: start)
+        return learnedFactors[Self.sectorKey(cell: cell, bearing: bearing)]
+            ?? learnedFactors[cell]
+            ?? Self.initial
     }
 
-    mutating func observe(_ ratio: Double, at start: CLLocationCoordinate2D) {
+    mutating func observe(_ ratio: Double, at start: CLLocationCoordinate2D, bearing: Double) {
         let measured = min(max(ratio, 1.0), 2.5)
-        let key = Self.cellKey(of: start)
+        let cell = Self.cellKey(of: start)
+        // Göz ortalaması da güncellenir: henüz ölçülmemiş dilimlerin başlangıç
+        // tahmini odur, yani yeni bir yöne açılan ilk rota da bölgeden faydalanır.
+        blend(measured, into: cell)
+        blend(measured, into: Self.sectorKey(cell: cell, bearing: bearing))
+    }
+
+    private mutating func blend(_ measured: Double, into key: String) {
         if let value = learnedFactors[key] {
             learnedFactors[key] = value + Self.smoothing * (measured - value)
         } else {
@@ -328,6 +380,13 @@ nonisolated struct DetourEstimate {
         let x = Int((coordinate.longitude / Self.cellDegrees).rounded())
         let y = Int((coordinate.latitude / Self.cellDegrees).rounded())
         return "\(x),\(y)"
+    }
+
+    private static func sectorKey(cell: String, bearing: Double) -> String {
+        let wrapped = bearing.truncatingRemainder(dividingBy: 360)
+        let positive = wrapped < 0 ? wrapped + 360 : wrapped
+        let sector = min(Int(positive / (360 / Double(sectorCount))), sectorCount - 1)
+        return "\(cell)|\(sector)"
     }
 }
 

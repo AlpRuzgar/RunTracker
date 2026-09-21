@@ -65,6 +65,35 @@ private final class FakeDirections: DirectionsProviding {
     }
 }
 
+/// Bellekte yaşayan sahte kalıcı bellek.
+private final class MemoryStore: GenerationStoring {
+    var factors: [String: Double] = [:]
+    var history: [[Double]] = []
+
+    func loadDetourFactors() -> [String: Double] { factors }
+    func saveDetourFactors(_ factors: [String: Double]) { self.factors = factors }
+    func loadRouteHistory() -> [[Double]] { history }
+    func saveRouteHistory(_ history: [[Double]]) { self.history = history }
+}
+
+/// Bacak başına dolambacı değişen sahte ağ. `FakeDirections` her bacağa aynı
+/// katsayıyı uyguladığı için yakınsama gerçekte olduğundan kolaydır; burada her
+/// bacak kendi katsayısını alır, yani toplam mesafe ilk tahminin etrafında
+/// gerçekçi biçimde saçılır.
+@MainActor
+private final class NoisyDirections: DirectionsProviding {
+    private(set) var requestCount = 0
+
+    func walkingRoute(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) async throws -> MKRoute? {
+        requestCount += 1
+        // Koordinattan türeyen tekrarlanabilir gürültü: aynı bacak aynı cevabı verir.
+        var hash = UInt64(bitPattern: Int64((from.latitude + to.longitude) * 1e7))
+        hash = hash &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+        let factor = 1.15 + 0.6 * Double(hash >> 40) / Double(UInt64(1) << 24)
+        return StubRoute(coordinates: [from, to], distance: Geo.distance(from, to) * factor)
+    }
+}
+
 @MainActor
 struct RouteGeneratorTests {
     /// Sahte ağla gerçek zamanlı beklemelerin (hız sınırı, backoff) anlamı yok;
@@ -77,21 +106,65 @@ struct RouteGeneratorTests {
         return policy
     }
 
-    /// İlk rotada varsayılan tahmin %23 uzun çıkar, tek düzeltmede tutar. İkinci
-    /// rotada öğrenilen dolambaç katsayısıyla ilk tahmin tutar: tek tur, bacak
-    /// sayısı kadar istek.
+    /// Varsayılan tahmin (1.3) sahte ağın 1.6'lık dolambacına göre %23 kısa
+    /// kalır; bu kabul eşiğinin (±%20) dışında olduğu için bir düzeltme turu
+    /// yapılır. İkinci rotada öğrenilen katsayıyla ilk tahmin tutar: tek tur,
+    /// bacak sayısı kadar istek.
     @Test func convergesAndReusesLearnedDetour() async throws {
         let generator = RouteGenerator(provider: FakeDirections(), policy: fastPolicy(), seed: 1)
 
         let first = try await generator.generate(from: start, targetDistance: 5_000)
         #expect(first.kind == .loop)
-        #expect(abs(first.distanceError) <= generator.policy.tolerance)
+        #expect(abs(first.distanceError) <= generator.policy.acceptance)
         #expect(generator.lastStats.evaluations == 2)
 
         let second = try await generator.generate(from: start, targetDistance: 5_000)
-        #expect(abs(second.distanceError) <= generator.policy.tolerance)
+        #expect(abs(second.distanceError) <= generator.policy.acceptance)
         #expect(generator.lastStats.evaluations == 1)
         #expect(generator.lastStats.requests == second.legs.count)
+    }
+
+    /// Kabul eşiğinin (±%20) içinde kalan ilk ölçüm yakınsamayı bitirir: daha sıkı
+    /// olan `tolerance`a (±%10) inmek için fazladan düzeltme turu ATILMAZ. Eskiden
+    /// solver yalnızca `tolerance`a bakıyor, elde kabul edilebilir rota varken
+    /// bacak sayısı kadar isteği iki kez daha harcıyordu.
+    @Test func stopsAtAcceptanceWithoutExtraCorrectionRounds() async throws {
+        let network = FakeDirections()
+        // İlk tahmin %15 uzun düşer: kabul aralığında, tolerans aralığının dışında.
+        network.detourFactor = DetourEstimate.initial * 1.15
+        let generator = RouteGenerator(provider: network, policy: fastPolicy(), seed: 11)
+
+        let route = try await generator.generate(from: start, targetDistance: 5_000)
+
+        #expect(generator.lastStats.evaluations == 1)
+        #expect(generator.lastStats.requests == route.legs.count)
+        #expect(abs(route.distanceError) > generator.policy.tolerance)
+        #expect(abs(route.distanceError) <= generator.policy.acceptance)
+    }
+
+    /// HEDEF: sıradan bir üretim patlama kredisinin (`requestBurst`) içinde
+    /// kalmalı. Kaldığı sürece süreyi ağ gecikmesi belirler; taştığı anda her
+    /// istek `requestPacing` kadar bekler ve üretim saniyelerce uzar.
+    ///
+    /// Aynı ölçüm eski yakınsama kuralıyla (yalnızca `tolerance`a inene kadar
+    /// devam et) üretim başına 21 isteğe kadar çıkıyordu.
+    @Test func typicalGenerationFitsInTheRequestBurst() async throws {
+        let generator = RouteGenerator(provider: NoisyDirections(), policy: fastPolicy(), seed: 21)
+
+        for _ in 0..<5 {
+            let route = try await generator.generate(from: start, targetDistance: 5_000)
+            #expect(generator.lastStats.requests <= generator.policy.requestBurst)
+            #expect(generator.lastStats.evaluations <= 2)
+            #expect(abs(route.distanceError) <= generator.policy.fallbackTolerance)
+        }
+    }
+
+    /// Hız sınırının dakikalık toplamı MapKit'in gözlemlenen throttle eşiğinin
+    /// (~50/dk) altında kalmalı: patlama + bir dakikada dolan kredi.
+    @Test func sustainedRequestRateStaysUnderThrottleThreshold() {
+        let policy = GenerationPolicy()
+        let perMinute = Double(policy.requestBurst) + 60 / Double(policy.requestPacing.components.seconds)
+        #expect(perMinute <= 50)
     }
 
     /// Eşzamanlılık sınırı hem uygulanıyor (aşılmıyor) hem kullanılıyor (sıralı değil).
@@ -206,20 +279,85 @@ struct RouteGeneratorTests {
     /// yeni bir generator (yeni oturum) bilinen bölgede ilk tahmini öğrenilmiş
     /// katsayıyla yapar ve tek turda kabul edilir.
     @Test func persistsLearnedDetourAcrossGenerators() async throws {
-        final class MemoryStore: DetourStoring {
-            var factors: [String: Double] = [:]
-            func loadDetourFactors() -> [String: Double] { factors }
-            func saveDetourFactors(_ factors: [String: Double]) { self.factors = factors }
-        }
         let store = MemoryStore()
 
-        let first = RouteGenerator(provider: FakeDirections(), policy: fastPolicy(), seed: 1, detourStore: store)
+        let first = RouteGenerator(provider: FakeDirections(), policy: fastPolicy(), seed: 1, store: store)
         _ = try await first.generate(from: start, targetDistance: 5_000)
         #expect(!store.factors.isEmpty)
 
-        let second = RouteGenerator(provider: FakeDirections(), policy: fastPolicy(), seed: 1, detourStore: store)
+        let second = RouteGenerator(provider: FakeDirections(), policy: fastPolicy(), seed: 1, store: store)
         _ = try await second.generate(from: start, targetDistance: 5_000)
         #expect(second.lastStats.evaluations == 1)
+    }
+
+    /// Rota geçmişi de oturumlar arasında taşınır: yeni bir generator (yeni
+    /// oturum) bir öncekinin rotasını hatırlar ve aynı yerden farklı bir yöne
+    /// açılır. Eskiden geçmiş yalnızca bellekte yaşadığı için her açılışta ilk
+    /// rota bir önceki oturumunkinin kopyası olabiliyordu.
+    @Test func persistsRouteHistoryAcrossGenerators() async throws {
+        let store = MemoryStore()
+
+        let first = RouteGenerator(provider: FakeDirections(), policy: fastPolicy(), seed: 1, store: store)
+        let previous = try await first.generate(from: start, targetDistance: 5_000)
+        #expect(!store.history.isEmpty)
+
+        // Aynı tohum: geçmiş olmasa ikisi birebir aynı rotayı üretirdi.
+        let second = RouteGenerator(provider: FakeDirections(), policy: fastPolicy(), seed: 1, store: store)
+        let next = try await second.generate(from: start, targetDistance: 5_000)
+
+        #expect(Geo.angularDifference(previous.bearing, next.bearing) > 60)
+    }
+
+    /// Çevredeki her yön kullanılmışken: iskeleti eski rotaların üstüne düşen
+    /// şekiller AĞA HİÇ GİDİLMEDEN elenir, ama eleme yalnızca boşluktan yer —
+    /// `maxLoopAttempts` gerçek deneme yine de yapılır ve sonuç yine bir döngü
+    /// olur. Elemenin deneme hakkını yiyebilmesi, kullanıcıya döngü yerine
+    /// git-gel rotası verirdi.
+    @Test func skipsNearDuplicateShapesWithoutGivingUpOnLoops() async throws {
+        let store = MemoryStore()
+        store.history = [blanketHistoryEntry(around: start, radius: 1_200)]
+        let generator = RouteGenerator(provider: FakeDirections(), policy: fastPolicy(), seed: 7, store: store)
+        let policy = generator.policy
+
+        let route = try await generator.generate(from: start, targetDistance: 2_000)
+
+        // Boşluğun tamamı elemeye gider…
+        #expect(generator.lastStats.skippedShapes == policy.maxShapeCandidates - policy.maxLoopAttempts)
+        // …ama denemeler korunur ve rota yine döngü olur.
+        #expect(generator.lastStats.attempts == policy.maxLoopAttempts)
+        #expect(route.kind == .loop)
+    }
+
+    /// Geçmiş boşken hiçbir şekil elenmez: eleme yalnızca gerçekten benzer
+    /// şekilleri kesmeli, sıradan üretimi yavaşlatmamalı.
+    @Test func doesNotSkipShapesWithoutHistory() async throws {
+        let generator = RouteGenerator(provider: FakeDirections(), policy: fastPolicy(), seed: 8)
+
+        _ = try await generator.generate(from: start, targetDistance: 5_000)
+
+        #expect(generator.lastStats.skippedShapes == 0)
+        #expect(generator.lastStats.attempts == 1)
+    }
+
+    /// Başlangıcın çevresini tümüyle kaplayan sahte bir rota izi: `radius`
+    /// yarıçaplı kareyi 40 m aralıklı satırlarla tarar, yani her nokta bir
+    /// önceki rotadan en fazla 20 m uzakta kalır. `RouteFootprint` girdiyi bir
+    /// yol gibi yeniden örneklediği için satır uçları yeter.
+    private func blanketHistoryEntry(around center: CLLocationCoordinate2D, radius: Double) -> [Double] {
+        var values = [center.latitude, center.longitude, 0.0]
+        var north = -radius
+        var isRightwards = true
+        while north <= radius {
+            let easts = isRightwards ? [-radius, radius] : [radius, -radius]
+            for east in easts {
+                let point = Geo.move(from: center, east: east, north: north)
+                values.append(point.latitude)
+                values.append(point.longitude)
+            }
+            north += 40
+            isRightwards.toggle()
+        }
+        return values
     }
 
     /// Yürünemeyen bacak iki yönde de cache'lenir: A→B'ye "yol yok" cevabı
@@ -239,3 +377,4 @@ struct RouteGeneratorTests {
         #expect(fetcher.missingCount(around: [a, b]) == 0)
     }
 }
+

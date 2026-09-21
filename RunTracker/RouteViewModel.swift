@@ -79,6 +79,12 @@ enum RouteGenerationState {
 
 /// Rota ekranının view model'i: üretim görevini yönetir ve sonucu tek bir
 /// `state` üzerinden yayınlar. Üretimin kendisi `RouteGenerator`'dadır.
+///
+/// Uygulamada TEK bir örneği vardır (`RunTrackerApp` environment'a koyar).
+/// Sekmelerin kendi kopyasını yaratması üç şeyi birden bozuyordu: her kopya
+/// MapKit'in hız kotasını kendi başına harcıyordu (ikisi birlikte kotayı aşıp
+/// throttle yiyordu), bacak cache'i bölünüyordu ve "son rotalar" geçmişi ayrı
+/// olduğu için iki sekme birbirinin rotasının aynısını üretebiliyordu.
 @Observable
 final class RouteViewModel {
     /// Kabul edilen hedef mesafe aralığı (metre).
@@ -94,12 +100,14 @@ final class RouteViewModel {
     private(set) var state: RouteGenerationState = .idle
     /// Yeni üretime izin verilene kadar kalan saniye (0 = beklemiyor).
     private(set) var cooldownRemaining = 0
+    /// Süren üretimin ilerlemesi; üretim yokken `nil`.
+    private(set) var progress: GenerationProgress?
 
     private let generator: RouteGenerator
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var cooldownTask: Task<Void, Never>?
 
-    init(generator: RouteGenerator = RouteGenerator(detourStore: UserDefaults.standard)) {
+    init(generator: RouteGenerator = RouteGenerator(store: UserDefaults.standard)) {
         self.generator = generator
     }
 
@@ -114,6 +122,14 @@ final class RouteViewModel {
 
     var isGenerating: Bool {
         if case .generating = state { true } else { false }
+    }
+
+    /// Süren üretimin tek satırlık özeti; boş bir spinner yerine nerede
+    /// olunduğunu gösterir.
+    var progressDescription: String? {
+        guard let progress else { return nil }
+        let phase = progress.isFallback ? "Straight route" : "Route"
+        return "\(phase) \(progress.attempt)/\(progress.maxAttempts)…"
     }
 
     func generate(from start: CLLocationCoordinate2D?, targetKilometers: Double) {
@@ -132,9 +148,14 @@ final class RouteViewModel {
         // durum artık yeni isteğe ait.
         task?.cancel()
         state = .generating(previous: route)
+        progress = nil
         task = Task {
+            defer { progress = nil }
             do {
-                let route = try await generator.generate(from: start, targetDistance: target)
+                let route = try await generator.generate(from: start, targetDistance: target) { [weak self] step in
+                    guard let self, !Task.isCancelled else { return }
+                    progress = step
+                }
                 guard !Task.isCancelled else { return }
                 state = .ready(route)
                 beginCooldown(seconds: Self.successCooldown)
@@ -147,6 +168,16 @@ final class RouteViewModel {
                 }
             }
         }
+    }
+
+    /// Elde gösterilecek bir rota yoksa üretir. Ana ekranın "Quick Route" kartı
+    /// bunu kullanır: açılışta zaten bir rota varsa (ör. kullanıcı Run sekmesinde
+    /// üretmiş) ağa hiç gidilmez. Eskiden ana ekran her açılışta kendi motoruyla
+    /// baştan üretiyor, hem MapKit kotasını hem de patlama kredisini kullanıcının
+    /// asıl isteyeceği üretimden önce harcıyordu.
+    func generateIfNeeded(from start: CLLocationCoordinate2D?, targetKilometers: Double) {
+        guard route == nil, !isGenerating else { return }
+        generate(from: start, targetKilometers: targetKilometers)
     }
 
     /// Üretim düğmesini `seconds` boyunca kilitler ve kalan süreyi saniyede bir

@@ -81,7 +81,9 @@ final class User {
     var sessions: [RunSession] = []
 
     var sessionCount: Int { sessions.count }
-    var totalDistance: Double { sessions.reduce(0) { $0 + $1.distance } }
+    var totalDistance: Double { sessions.reduce(0) { $0 + $1.distanceInKm } }
+    var totalDuration: Double { sessions.reduce(0) { $0 + $1.duration } }
+    var avgPace: Double { totalDuration / totalDistance }
     
     var avatar: Avatar = Avatar.random()
 

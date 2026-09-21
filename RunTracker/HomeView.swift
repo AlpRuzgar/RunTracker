@@ -14,13 +14,15 @@ struct HomeView: View {
     @Environment(User.self) private var user
     @Environment(\.colorScheme) private var colorScheme
 
+    /// Uygulama genelinde paylaşılan tek üretim motoru (bkz. `RunTrackerApp`).
+    /// Ana ekranın kendi motoru vardı: MapKit kotasını Run sekmesinden habersiz
+    /// harcıyor, öğrendiği dolambaç katsayısını saklamıyor ve ürettiği rotayı
+    /// Run sekmesiyle paylaşmıyordu.
+    @Environment(RouteViewModel.self) private var routes
     @State private var locationManager = LocationManager()
-    @State private var routeGenerator = RouteGenerator()
     @State private var currentWeather: CurrentWeather?
     @State var timeOfDayMessage: String = "Ready to get moving?"
     @State var textColor: Color = .white
-    @State private var generatedRoute: GeneratedRoute?
-    @State private var isGeneratingRoute = false
     @State private var cameraPosition: MapCameraPosition = .automatic
     
     @Query private var currentWeekSessions: [RunSession]
@@ -36,41 +38,40 @@ struct HomeView: View {
                 VStack{
                     if let location = locationManager.userLocation {
                         ForecastView(location: location)
-                        quickGenerateCard()
+                        
                     } else {
                         Text("Can't find your location")
                             .frame(maxWidth: .infinity)
                             .padding()
+                            .background(colorScheme == .dark ? .steelGray : .white)
+                            .clipShape(RoundedRectangle(cornerRadius: 15))
+                            .shadow(radius: 5)
                     }
-                    if user.sessions.count >= 3 {
-                        List {
-                            ForEach(0..<3) { i in
-                                RunSessionRow(session: user.sessions[i])
-                            }
-                        }
-                    } else if user.sessions.isEmpty {
-                        Text("No sessions yet!")
-                    } else {
-                        List(user.sessions) { session in
-                            RunSessionRow(session: session)
-                        }
-                    }
-                    
+                    recentRunsList()
                 }
                 .padding()
             }
-            .background(LinearGradient(colors: [.emerald, .emerald.opacity(0.1)], startPoint: .bottomTrailing, endPoint: .topLeading))
+            .background(LinearGradient(colors: [.lightBlue, .lightBlue.opacity(0.1)], startPoint: .bottomTrailing, endPoint: .topLeading))
             .navigationTitle("\(timeOfDayMessage), \(user.name)!")
+        }
+        .onChange(of: routes.route?.id) {
+            guard let route = routes.route else { return }
+            cameraPosition = .camera(.init(centerCoordinate: route.start, distance: route.distance))
         }
         .task(id: locationManager.userLocation == nil) {
             timeOfDayMessage = getTimeOfDayGreeting()
+            guard let location = locationManager.userLocation else { return }
+
+            // Rota, havadan ÖNCE ve ondan bağımsız istenir. Eskiden hava
+            // çağrısının arkasındaydı: hava servisi yanıt vermediğinde kart
+            // sonsuza kadar "Generating" yazıyor, rota hiç istenmiyordu.
+            routes.generateIfNeeded(from: location.coordinate, targetKilometers: user.targetDistance)
+
             guard currentWeather == nil,
-                  let location = locationManager.userLocation,
                   let current = try? await WeatherService.shared.weather(for: location, including: .current) else { return }
             withAnimation(.spring(duration: 0.7)) {
                 currentWeather = current
                 textColor = current.isDaylight ? .black : .white
-                generateRoute()
             }
         }
     }
@@ -91,55 +92,26 @@ struct HomeView: View {
     }
     
     @ViewBuilder
-    func quickGenerateCard() -> some View {
-        HStack {
-            if let generatedRoute {
-                Map(position: $cameraPosition) {
-                    ForEach(generatedRoute.polylines, id: \.self) { polyline in
-                        MapPolyline(polyline)
-                            .stroke(.blue, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
-                    }
+    func recentRunsList() -> some View {
+        VStack {
+            Text("Recent Sessions")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .font(.title2)
+                .bold()
+                .padding(.bottom, 10)
+            if !currentWeekSessions.isEmpty {
+                List(currentWeekSessions) {session in
+                    RunSessionRow(session: session)
                 }
-                .mapControlVisibility(.hidden)
-                .allowsHitTesting(false) 
-                .frame(width: 120, height: 120)
-                VStack{
-                    Text("Quick Route")
-                        .font(.title)
-                    Text("\(generatedRoute.distanceMeasurement.formatted())")
-                        .font(.caption)
-                }
-                Spacer()
-                NavigationLink(destination: NavigationView(route: generatedRoute)){
-                    Image(systemName: "arrow.up")
-                }
-                .padding()
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .background(.emerald.gradient)
-                .padding()
-            } else {
-                ProgressView()
-                Text("Generating")
+            }
+            else {
+                Text("No sessions this week!")
             }
         }
-        .frame(height: 120)
-        .frame(maxWidth: .infinity)
+        .padding()
         .background(colorScheme == .dark ? .steelGray : .white)
         .clipShape(RoundedRectangle(cornerRadius: 15))
         .shadow(radius: 5)
-    }
-
-    func generateRoute() {
-        guard let location = locationManager.userLocation else { return }
-        isGeneratingRoute = true
-        Task {
-            defer { isGeneratingRoute = false }
-            generatedRoute = try? await routeGenerator.generate(from: location.coordinate, targetDistance: user.targetDistance * 1000)
-            if let generatedRoute {
-                cameraPosition = .camera(.init(centerCoordinate: generatedRoute.start, distance: generatedRoute.distance))
-            }
-        }
     }
 }
 
@@ -156,4 +128,5 @@ struct HomeView: View {
                 motivation: .hobby
             )
         )
+        .environment(RouteViewModel())
 }

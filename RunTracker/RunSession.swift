@@ -39,7 +39,13 @@ final class RunSession {
         Measurement(value: distance, unit: .meters)
     }
     var pace: TimeInterval? { distance > 0 ? duration / distanceInKm : nil }
-    
+    var district: String {
+        get async throws {
+            let firstLocation = segments.first?.points.first
+            let location = CLLocation(latitude: firstLocation!.latitude, longitude: firstLocation!.longitude)
+            return try await location.getCityDistrict()
+        }
+    }
     init(
         startedAt: Date,
         endedAt: Date = .now,

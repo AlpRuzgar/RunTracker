@@ -9,7 +9,8 @@ import SwiftUI
 import MapKit
 
 struct MapView: View {
-    @State private var routes = RouteViewModel()
+    /// Uygulama genelinde paylaşılan tek üretim motoru (bkz. `RunTrackerApp`).
+    @Environment(RouteViewModel.self) private var routes
     @State private var locationManager = LocationManager()
     @State private var distance: Double = 0.0
     @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
@@ -59,6 +60,16 @@ struct MapView: View {
             VStack(spacing: 12) {
                 if let route = routes.route {
                     routeCard(route)
+                        .transition(.scale(scale: 0.8).combined(with: .opacity))
+                }
+
+                if let status = routes.progressDescription {
+                    Label(status, systemImage: "location.magnifyingglass")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 14)
+                        .glassEffect()
                         .transition(.scale(scale: 0.8).combined(with: .opacity))
                 }
 
@@ -118,6 +129,7 @@ struct MapView: View {
         }
         .animation(.spring(duration: 0.45, bounce: 0.25), value: routes.route?.id)
         .animation(.spring(duration: 0.45, bounce: 0.25), value: errorMessage)
+        .animation(.spring(duration: 0.45, bounce: 0.25), value: routes.progressDescription)
         .animation(.spring(duration: 0.45, bounce: 0.25), value: routes.isGenerating)
     }
 
@@ -199,4 +211,5 @@ struct ButtonView: View {
 
 #Preview {
     MapView()
+        .environment(RouteViewModel())
 }

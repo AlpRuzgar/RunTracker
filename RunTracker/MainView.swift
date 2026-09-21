@@ -38,4 +38,5 @@ struct MainView: View {
                 motivation: .hobby
             )
         )
+        .environment(RouteViewModel())
 }

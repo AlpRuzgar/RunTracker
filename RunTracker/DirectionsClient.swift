@@ -169,9 +169,11 @@ final class LegFetcher {
     private let gate: RequestGate
     private let pacer: RequestPacer
     private var cache: [Key: Leg] = [:]
-    /// Bu sayıyı aşan cache yeni bir üretimin başında boşaltılır — asla üretim
+    /// Yazılma sırası: kapasite aşılınca en eskiler atılır.
+    private var insertions: [Key] = []
+    /// Bu sayıyı aşan cache yeni bir üretimin başında budanır — asla üretim
     /// sırasında değil; yoksa bir turun bacakları okunmadan silinebilirdi.
-    private let capacity = 400
+    private let capacity = 600
 
     /// Ağa giden toplam istek sayısı (throttle yiyenler dahil).
     private(set) var requestCount = 0
@@ -182,9 +184,14 @@ final class LegFetcher {
         self.pacer = RequestPacer(interval: requestPacing, burst: requestBurst)
     }
 
-    /// Yeni bir üretimin başında çağrılır.
+    /// Yeni bir üretimin başında çağrılır. Kapasite aşıldığında en eski yarı
+    /// atılır; eskiden cache'in TAMAMI siliniyordu, yani sınırı aşan her üretim
+    /// bir öncekinin bacaklarını da kaybedip buz gibi başlıyordu.
     func trimIfNeeded() {
-        if cache.count > capacity { cache.removeAll() }
+        guard cache.count > capacity else { return }
+        let excess = cache.count - capacity / 2
+        for key in insertions.prefix(excess) { cache[key] = nil }
+        insertions.removeFirst(min(excess, insertions.count))
     }
 
     /// Kapalı bir yolun (son noktadan başa dönülür) kaç bacağı için ağa gidilmesi gerektiği.
@@ -217,25 +224,35 @@ final class LegFetcher {
     }
 
     private func load(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) async throws {
+        // Sıra beklerken kardeş bir istek bu bacağı doldurmuş olabilir (ör. ters
+        // yönün "yol yok" cevabı iki yönü de yazar); boşuna sıra alma.
+        guard cache[Key(from, to)] == nil else { return }
+
+        // ÖNCE hız sırası, SONRA eşzamanlılık yeri. Ters sırada bekleyen istek
+        // gate'te yer TUTARAK uyuyordu: üç yerin ikisi uykuda geçiyor, gerçek ağ
+        // gecikmeleri üst üste binemiyordu. Hız sınırı zaten genel sırayı
+        // belirlediği için burada beklemek kimseyi engellemez.
+        try await pacer.waitTurn()
         await gate.acquire()
         defer { gate.release() }
         // Sıra beklerken tur iptal edildiyse (kardeş bacak throttle yedi) istek atma.
         try Task.checkCancellation()
-        // Sıra beklerken kardeş bir istek bu bacağı doldurmuş olabilir (ör. ters
-        // yönün "yol yok" cevabı iki yönü de yazar); boşuna ağa gitme.
         guard cache[Key(from, to)] == nil else { return }
-        try await pacer.waitTurn()
 
         requestCount += 1
         if let route = try await provider.walkingRoute(from: from, to: to) {
-            cache[Key(from, to)] = .route(route)
+            store(.route(route), at: Key(from, to))
         } else {
             // Yürünebilirlik simetriktir: A→B arasında yol yoksa B→A da yoktur;
             // ters yön hiç sorulmadan işaretlenir. Rotanın kendisi için bu
             // yapılamaz: MKRoute'un çizgisi ve adımları yönlüdür, ters çevrilemez.
-            cache[Key(from, to)] = .noRoute
-            cache[Key(to, from)] = .noRoute
+            store(.noRoute, at: Key(from, to))
+            store(.noRoute, at: Key(to, from))
         }
+    }
+
+    private func store(_ leg: Leg, at key: Key) {
+        if cache.updateValue(leg, forKey: key) == nil { insertions.append(key) }
     }
 
     private func pairs(around ring: [CLLocationCoordinate2D]) -> [(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D)] {
