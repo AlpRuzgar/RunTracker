@@ -22,8 +22,10 @@ struct UserQAView: View {
     @State private var targetDistance: Double = 0.0
     @State private var motivation: Motivation = .hobby
 
+    var isBdayValid: Bool { bday <= .now }
     var isHeightValid: Bool { heightCM > 50 && heightCM <= 250 }
     var isWeightValid: Bool { weightKG > 20 && weightKG <= 300 }
+    var isTargetDistanceValid: Bool { targetDistance > 0 }
 
     private let lastStep = 3
 
@@ -31,8 +33,8 @@ struct UserQAView: View {
     private var canAdvance: Bool {
         switch questionIndex {
         case 1: return !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        case 2: return isHeightValid && isWeightValid
-        case 3: return targetDistance > 0
+        case 2: return isBdayValid && isHeightValid && isWeightValid
+        case 3: return isTargetDistanceValid
         default: return true
         }
     }
@@ -143,9 +145,12 @@ struct UserQAView: View {
 
             card {
                 fieldLabel("Date of Birth")
-                DatePicker("Date of Birth", selection: $bday, displayedComponents: .date)
+                DatePicker("Date of Birth", selection: $bday, in: ...Date.now, displayedComponents: .date)
                     .datePickerStyle(.compact)
                     .labelsHidden()
+                if !isBdayValid {
+                    validationMessage("Date of birth can't be in the future.")
+                }
             }
 
             card {
@@ -173,6 +178,9 @@ struct UserQAView: View {
             card {
                 fieldLabel("Target Distance")
                 measurementField(value: $targetDistance, placeholder: "5", unit: "km")
+                if !isTargetDistanceValid {
+                    validationMessage("Enter a target distance greater than 0.")
+                }
             }
 
             VStack(alignment: .leading, spacing: 12) {

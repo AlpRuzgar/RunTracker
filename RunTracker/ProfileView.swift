@@ -16,7 +16,8 @@ struct ProfileView: View {
     /// böylece liste onboarding'de oluşturulan kullanıcıya bağlıdır.
     
     @Query private var currentWeekSessions: [RunSession]
-    
+    @Environment(\.colorScheme) private var colorScheme
+
     init() {
         _currentWeekSessions = Query(filter: RunSession.currentWeekPredicate(),
                                      sort: \.startedAt)
@@ -38,7 +39,7 @@ struct ProfileView: View {
                         }
                     }
                     .padding()
-                    .background(.white)
+                    .background(colorScheme == .dark ? .steelGray : .white)
                     .clipShape(RoundedRectangle(cornerRadius: 15))
                     .shadow(radius: 5)
                 }
@@ -72,11 +73,11 @@ struct ProfileView: View {
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding()
-        .background(.white)
+        .background(colorScheme == .dark ? .steelGray : .white)
         .clipShape(RoundedRectangle(cornerRadius: 15))
         .shadow(radius: 5)
     }
-    
+
     @ViewBuilder
     func currentStats() -> some View {
         VStack {
@@ -102,11 +103,11 @@ struct ProfileView: View {
             }
         }
         .padding()
-        .background(.white)
+        .background(colorScheme == .dark ? .steelGray : .white)
         .clipShape(RoundedRectangle(cornerRadius: 15))
         .shadow(radius: 5)
     }
-    
+
     @ViewBuilder
     func lifetimeStats() -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150))]){
@@ -142,6 +143,7 @@ struct RibbonView: View {
 struct InfoCard<Card: View>: View {
     var title: String
     @ViewBuilder var card: () -> Card
+    @Environment(\.colorScheme) private var colorScheme
     var body: some View {
         VStack {
             Text(title)
@@ -151,7 +153,7 @@ struct InfoCard<Card: View>: View {
             card()
         }
         .padding()
-        .background(.white)
+        .background(colorScheme == .dark ? .steelGray : .white)
         .clipShape(RoundedRectangle(cornerRadius: 15))
         .shadow(radius: 5)
     }

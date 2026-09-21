@@ -36,7 +36,7 @@ struct ForecastView: View {
     @State var hourTextColor: Color = .black
     
     @State private var district: String = ""
-    
+        
     var body: some View {
         GlassEffectContainer(spacing: 20) {
             VStack(spacing: 16) {
@@ -75,7 +75,6 @@ struct ForecastView: View {
         )
         .environment(\.colorScheme, .light)
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .padding(.horizontal)
         .task {
             let current = try? await WeatherService.shared.weather(for: location, including: .current)
             let hourly = try? await WeatherService.shared.weather(for: location, including: .hourly)

@@ -1,5 +1,0 @@
-        .swipeActions {
-            Button("Delete", systemImage: "trash", role: .destructive) {
-                modelContext.delete(student)
-            }
-        }
