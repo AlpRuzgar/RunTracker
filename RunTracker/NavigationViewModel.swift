@@ -11,9 +11,12 @@ import CoreLocation
 
 // MARK: - Navigasyon durumu
 
-enum NavigationState {
+enum NavigationState: Equatable {
     /// Navigasyon başlamadı ya da durduruldu.
     case idle
+    /// Rota kuruldu ama kullanıcı henüz rotanın üzerinde değil; yaklaşması
+    /// bekleniyor (bkz. `NavigationViewModel.startRadius`).
+    case waitingToStart
     /// Rota takip ediliyor.
     case navigating
     /// Kullanıcı rotadan çıktı; bağlantı rotası çekiliyor.
@@ -27,6 +30,11 @@ enum NavigationState {
 /// Üretilmiş bir döngü rotası üzerinde adım adım yol tarifi verir: sıradaki
 /// manevra talimatını, manevraya ve bitişe kalan mesafeyi günceller. Kullanıcı
 /// rotadan uzaklaşırsa MapKit'ten bağlantı rotası çekip rotayı yeniden kurar.
+///
+/// Koşu rotanın başından başlamak zorunda değildir: kullanıcı rotanın NERESİNE
+/// yakınsa oradan katılır ve rotayı bitişe kadar takip eder (bkz. `entryMatch`).
+/// Rotaya hiç yakın değilse navigasyon başlamaz, yaklaşması beklenir (bkz.
+/// `startRadius`).
 ///
 /// Konumu kendisi dinlemez; görünüm her yeni konumda `update(location:)`
 /// çağırır. Böylece `LocationManager`'a bağımlı olmaz ve test edilebilir kalır.
@@ -57,6 +65,17 @@ final class NavigationViewModel {
     /// Konum bu kadar eskiyse yok sayılır (saniye). CoreLocation ilk anda
     /// dakikalar önce alınmış bir fix'i teslim edebilir.
     var maxLocationAge = 8.0
+    /// Navigasyonun başlaması için kullanıcının rotaya en fazla bu kadar uzakta
+    /// olması gerekir (metre). Rotanın ORTASINDAN katılmak serbesttir, rotadan
+    /// uzakta başlamak değil: uzaktaki bir konum rotanın rastgele bir yerine
+    /// oturur, koşu daha ilk adımda yanlış yerden sayılmaya başlar ve "kalan
+    /// mesafe" baştan yanlış olur.
+    ///
+    /// Neden 100: `maxAcceptableAccuracy` (65 m) kadar belirsiz bir fix hâlâ
+    /// kabul edildiği için eşik ondan belirgin biçimde geniş olmalı — rotanın tam
+    /// üstünde durup kötü fix alan kullanıcı geri çevrilmemeli. Öte yandan bir
+    /// şehir bloğu kadar (~100 m) uzaktaki kullanıcı yakalanır.
+    var startRadius = 100.0
 
     // MARK: Dışa açık durum
 
@@ -71,16 +90,28 @@ final class NavigationViewModel {
     private(set) var polylines: [MKPolyline] = []
     /// Güncel rotanın gidiş yönünü gösteren oklar.
     private(set) var arrows: [RouteArrow] = []
-    /// Kullanıcının rotaya olan dik uzaklığı (metre).
-    private(set) var offRouteDistance = 0.0
+    /// Kullanıcının rotaya olan dik uzaklığı (metre). Güvenilir bir konum
+    /// gelene kadar `nil`: başlamayı bekleyen ekranın "0 m uzakta" yazmaması için
+    /// "ölçülmedi" ile "rotanın üstünde" ayrı tutulur.
+    private(set) var distanceToRoute: Double?
     /// Kullanıcı şu an rotanın dışında mı? (Henüz yeniden rota çizdirecek
     /// kadar uzun sürmemiş olabilir.)
     var isOffRoute: Bool { offRouteCount > 0 }
 
-    /// Rotanın tamamlanan oranı (0...1) — ilerleme göstergeleri için.
+    /// Kullanıcının bu koşuda gideceği mesafe (metre): rotanın tamamı değil,
+    /// katıldığı yerden bitişe kalan kısım. Rotanın başından başlayanlar için
+    /// ikisi aynıdır.
+    var journeyDistance: Double { max(totalDistance - entryTravelled, 0) }
+
+    /// Koşunun tamamlanan oranı (0...1) — ilerleme göstergeleri için.
+    /// Ölçü rotanın tamamı değil kullanıcının KENDİ yolculuğudur; rotanın
+    /// ortasından katılan koşucunun çubuğu da boş başlar.
     var progressFraction: Double {
-        totalDistance > 0 ? min(max(progressTravelled / totalDistance, 0), 1) : 0
+        journeyDistance > 0 ? min(max(journeyTravelled / journeyDistance, 0), 1) : 0
     }
+
+    /// Kullanıcının katıldığı yerden bu ana kadar yürüdüğü mesafe (metre).
+    private var journeyTravelled: Double { max(progressTravelled - entryTravelled, 0) }
 
     // MARK: İç durum
 
@@ -121,6 +152,9 @@ final class NavigationViewModel {
     /// gittiği yön doğru parçayı ayırır; ters yöndeki bir parçaya bu kadar
     /// metrelik ceza eklenir.
     private let courseWeight = 30.0
+    /// Katılma noktası seçilirken "aynı kadar yakın" sayılan fark (metre);
+    /// bkz. `entryMatch`.
+    private let entryTieTolerance = 20.0
 
     private var steps: [Step] = []
     private var points: [RoutePoint] = []
@@ -130,6 +164,10 @@ final class NavigationViewModel {
     private var progressIndex = 0
     /// Rota başından bu ana kadar yürünen mesafe (metre).
     private var progressTravelled = 0.0
+    /// Kullanıcının rotaya katıldığı yerin rota başından mesafesi (metre).
+    /// Rotanın başından başlayan koşucuda 0'dır. İlerleme ve varış bu noktadan
+    /// sayılır; rotanın ilk yarısı "zaten yürünmüş" gibi görünmez.
+    private var entryTravelled = 0.0
     /// Kullanıcının içinde bulunduğu adımın sırası.
     private var currentStepIndex = 0
     private var totalDistance = 0.0
@@ -140,16 +178,22 @@ final class NavigationViewModel {
 
     // MARK: Genel kullanım
 
-    /// Verilen yol üzerinde navigasyonu başlatır. Talimatlı bacakları olan
+    /// Verilen yol üzerinde navigasyona hazırlanır. Talimatlı bacakları olan
     /// yollarda (üretilmiş rota) adım adım tarif verilir; yalnızca geometrisi
-    /// olan yollarda (kaydedilmiş yol) talimatsız takip yapılır.
+    /// olan yollarda (kaydedilmiş yol, ters yön) talimatsız takip yapılır.
+    ///
+    /// Takip hemen başlamaz: kullanıcı rotaya yaklaşana kadar `waitingToStart`
+    /// durumunda beklenir, yaklaştığı anda katıldığı yerden başlar.
     func start(path: any FollowablePath) {
         steps = path.legs.isEmpty
             ? path.polylines.filter { $0.pointCount > 1 }.map { Step(instruction: "", polyline: $0) }
             : makeSteps(from: path.legs, endsAtDestination: true)
         destination = path.destination
         lastReroute = nil
-        rebuildProgress()
+        rebuildRoute()
+        resetProgress()
+        state = points.count > 1 ? .waitingToStart : .idle
+        refreshGuidance()
     }
 
     /// Navigasyonu bitirir ve durumu temizler.
@@ -164,23 +208,87 @@ final class NavigationViewModel {
         currentInstruction = ""
         distanceToNextManeuver = 0
         remainingDistance = 0
-        offRouteDistance = 0
+        distanceToRoute = nil
+        entryTravelled = 0
         offRouteCount = 0
         isRerouting = false
     }
 
-    /// Her yeni konumda çağrılır: ilerlemeyi ve talimatı günceller, varışı
-    /// yakalar, rota dışına çıkışı doğrulayıp yeniden rota sürecini başlatır.
+    /// Her yeni konumda çağrılır. Takip başlamadıysa kullanıcının rotaya yaklaşıp
+    /// yaklaşmadığına, başladıysa ilerlemeye bakar.
     func update(location: CLLocation) {
-        guard state == .navigating, points.count > 1, isTrustworthy(location) else { return }
+        guard points.count > 1, isTrustworthy(location) else { return }
 
+        switch state {
+        case .waitingToStart: beginIfOnRoute(at: location.coordinate)
+        case .navigating: follow(location)
+        // Yeniden rota çekilirken rota tabloları değişmek üzeredir; biten istek
+        // `navigating`e döndürür.
+        case .idle, .rerouting, .finished: break
+        }
+    }
+
+    // MARK: Katılma
+
+    /// Kullanıcı rotaya yeterince yaklaştıysa takibi katıldığı yerden başlatır.
+    private func beginIfOnRoute(at coordinate: CLLocationCoordinate2D) {
+        guard let entry = entryMatch(for: coordinate) else { return }
+        distanceToRoute = entry.distance
+        guard entry.distance <= startRadius else { return }
+
+        entryTravelled = entry.travelled
+        progressTravelled = entry.travelled
+        progressIndex = entry.index
+        currentStepIndex = entry.stepIndex
+        offRouteCount = 0
+        state = .navigating
+        refreshGuidance()
+    }
+
+    /// Kullanıcının rotaya katıldığı yer: konuma en yakın parça. `bestMatch`ten
+    /// iki farkı var.
+    ///
+    /// 1. Yön cezası yoktur: koşu başlamadan önce kullanıcı duruyor ya da rotaya
+    ///    herhangi bir yönden yaklaşıyor olabilir, gittiği yön bir şey anlatmaz.
+    /// 2. Aynı yakınlıktaki adaylardan EN ERKENİ seçilir. Döngünün başı ile sonu
+    ///    aynı noktada olduğu için, başlangıçta duran koşucu aksi hâlde rotanın
+    ///    SONUNA oturtulabilir (hangisinin birkaç metre daha yakın çıkacağı
+    ///    GPS'in keyfine kalmıştır) ve koşu daha başlamadan "tamamlandı" sayılırdı.
+    ///    Kesişen rotalarda da aynı kural işler: eşitlik hâlinde kullanıcıya
+    ///    rotanın daha uzun kalan kısmı verilir.
+    private func entryMatch(for coordinate: CLLocationCoordinate2D) -> Match? {
+        var candidates: [Match] = []
+        var closest = Double.infinity
+
+        for i in 0..<(points.count - 1) {
+            let (start, end) = (points[i], points[i + 1])
+            let projection = Geo.project(coordinate, onto: start.coordinate, end.coordinate)
+            closest = min(closest, projection.distance)
+            candidates.append(Match(
+                travelled: start.travelled + (end.travelled - start.travelled) * projection.fraction,
+                stepIndex: projection.fraction < 1 ? start.stepIndex : end.stepIndex,
+                distance: projection.distance,
+                index: i
+            ))
+        }
+
+        return candidates
+            .filter { $0.distance <= closest + entryTieTolerance }
+            .min { $0.travelled < $1.travelled }
+    }
+
+    // MARK: Takip
+
+    /// İlerlemeyi ve talimatı günceller, varışı yakalar, rota dışına çıkışı
+    /// doğrulayıp yeniden rota sürecini başlatır.
+    private func follow(_ location: CLLocation) {
         let coordinate = location.coordinate
         // Kötü doğrulukta bir konum rotanın yanına düşer; eşiği o konumun kendi
         // belirsizliği kadar genişletmek gereksiz yeniden rotaları önler.
         let threshold = max(offRouteThreshold, location.horizontalAccuracy * 1.5)
 
         guard let match = matchOnRoute(coordinate, course: course(of: location), threshold: threshold) else { return }
-        offRouteDistance = match.distance
+        distanceToRoute = match.distance
 
         guard match.distance <= threshold else {
             offRouteCount += 1
@@ -319,8 +427,12 @@ final class NavigationViewModel {
 
     /// Döngü başladığı yerde bittiği için varış, hem mesafenin çoğunun
     /// yürünmüş olmasına hem bitişe yakınlığa bakar.
+    ///
+    /// Ölçü rotanın tamamı değil kullanıcının KENDİ yolculuğudur: rotanın
+    /// %70'inden katılan koşucu rotanın yarısını hiçbir zaman yürümeyecek olsa da
+    /// kendi yolculuğunun yarısını yürür.
     private func checkArrival(at coordinate: CLLocationCoordinate2D) {
-        guard let destination, progressTravelled > totalDistance * 0.5 else { return }
+        guard let destination, journeyTravelled > journeyDistance * 0.5 else { return }
         guard remainingDistance <= arrivalRadius
                 || Geo.distance(coordinate, destination) <= arrivalRadius else { return }
 
@@ -366,7 +478,13 @@ final class NavigationViewModel {
         }
 
         steps = makeSteps(from: [connector], endsAtDestination: false) + steps[rejoinIndex...]
-        rebuildProgress()
+        // Yeni rota kullanıcının bulunduğu yerden başlar: katılma noktası da,
+        // ilerleme de sıfırdan sayılır. Bekleme durumuna dönülmez — kullanıcının
+        // rotanın üstünde olduğu zaten biliniyor.
+        rebuildRoute()
+        resetProgress()
+        state = points.count > 1 ? .navigating : .idle
+        refreshGuidance()
     }
 
     /// İki nokta arasındaki yürüme rotasını çeker; bulunamazsa `nil` döner.
@@ -403,9 +521,13 @@ final class NavigationViewModel {
         }
     }
 
-    /// Adımlardan rota noktalarını ve mesafe tablolarını yeniden kurar;
-    /// hem başlangıçta hem yeniden rota sonrasında çağrılır.
-    private func rebuildProgress() {
+    /// Adımlardan rota noktalarını, mesafe tablolarını ve haritada çizilecekleri
+    /// kurar; hem başlangıçta hem yeniden rota sonrasında çağrılır.
+    ///
+    /// İlerlemeye dokunmaz: rotanın kendisini kurmak ile kullanıcının nerede
+    /// olduğunu belirlemek artık ayrı adımlardır — koşu rotanın başından
+    /// başlamak zorunda olmadığı için (bkz. `beginIfOnRoute`).
+    private func rebuildRoute() {
         points = []
         stepStart = []
         var travelled = 0.0
@@ -428,12 +550,15 @@ final class NavigationViewModel {
         totalDistance = travelled
         polylines = steps.map(\.polyline)
         arrows = RouteArrow.along(polylines)
-        progressIndex = 0
+    }
+
+    /// İlerlemeyi rotanın başına alır.
+    private func resetProgress() {
+        entryTravelled = 0
         progressTravelled = 0
+        progressIndex = 0
         currentStepIndex = 0
         offRouteCount = 0
-        offRouteDistance = 0
-        state = points.count > 1 ? .navigating : .idle
-        refreshGuidance()
+        distanceToRoute = nil
     }
 }

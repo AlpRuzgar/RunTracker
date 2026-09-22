@@ -15,13 +15,17 @@ struct MainView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             HomeView()
-                .tabItem{ Label("Home", systemImage: "house")}
+                .tabItem { Label("Home", systemImage: "house.fill") }
+                .tag(Tab.home)
             MapView()
                 .tabItem { Label("Run", systemImage: "figure.run") }
                 .tag(Tab.run)
             ProfileView()
-                .tabItem { Label("Profile", systemImage: "person")}
+                .tabItem { Label("Profile", systemImage: "person.fill") }
+                .tag(Tab.profile)
         }
+        // Sekme çubuğu uygulamanın birincil rengini taşır (bkz. `Theme.swift`).
+        .tint(.brightOrange)
     }
 }
 

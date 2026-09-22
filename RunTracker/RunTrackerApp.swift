@@ -30,12 +30,17 @@ private struct RootView: View {
     @State private var routes = RouteViewModel()
 
     var body: some View {
-        if let user = users.first {
-            MainView()
-                .environment(user)
-                .environment(routes)
-        } else {
-            UserQAView()
+        Group {
+            if let user = users.first {
+                MainView()
+                    .environment(user)
+                    .environment(routes)
+            } else {
+                UserQAView()
+            }
         }
+        // Uygulamanın birincil rengi; onboarding dahil her yerde geçerli
+        // (bkz. `Theme.swift`).
+        .tint(.brightOrange)
     }
 }

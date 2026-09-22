@@ -14,19 +14,15 @@ enum SortOption: Identifiable, CaseIterable {
     case distance
     case duration
     case pace
-    
+
     var id: Self { self }
-    
+
     var title: String {
         switch self {
-        case .date:
-            return "By Date"
-        case .distance:
-            return "By Distance"
-        case .duration:
-            return "By Duration"
-        case .pace:
-            return "By Pace"
+        case .date: return "By Date"
+        case .distance: return "By Distance"
+        case .duration: return "By Duration"
+        case .pace: return "By Pace"
         }
     }
 }
@@ -35,19 +31,12 @@ struct SessionListView: View {
     @Environment(User.self) private var user
     @Environment(\.modelContext) private var modelContext
     private var sessions: [RunSession] { user.sessions }
-    /// `@Query` sonucu salt-okunur olduğundan, seçili seçeneğe göre
-    /// sıralanmış bir kopya döndürülür.
-    ///
-    
-    @Query private var currentWeekSessions: [RunSession]
-
-    init() {
-        _currentWeekSessions = Query(filter: RunSession.currentWeekPredicate(), sort: \.startedAt)
-    }
-
 
     @State private var selectedSortOption: SortOption = .date
+    @State private var selected: RunSession?
 
+    /// `@Query` sonucu salt-okunur olduğundan, seçili seçeneğe göre
+    /// sıralanmış bir kopya döndürülür.
     private var sortedSessions: [RunSession] {
         switch selectedSortOption {
         case .date:
@@ -64,31 +53,64 @@ struct SessionListView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack {
-                List(sessions){ session in
-                    RunSessionRow(session: session)
+        Group {
+            if sessions.isEmpty {
+                EmptyStateView(
+                    icon: "shoe",
+                    title: "No runs yet",
+                    message: "Every run you finish is saved here."
+                )
+                .card()
+                .padding(.horizontal, Metrics.gutter)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .background(Color.canvas)
+            } else {
+                // Liste, kart görünümü için sadeleştirilir: satır zemini ve
+                // ayraçlar kapatılır, kart biçimini satırın kendisi taşır.
+                // `List` yine de kalır — kaydırarak silme onunla gelir.
+                List {
+                    ForEach(sortedSessions) { session in
+                        // `NavigationLink` yerine düğme: liste satırının açılım
+                        // oku (>) kartın DIŞINA, kenar boşluğuna düşüyordu.
+                        // Gidilecek yer `navigationDestination` ile seçilir.
+                        Button {
+                            selected = session
+                        } label: {
+                            RunSessionRow(session: session)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 5, leading: Metrics.gutter,
+                                                  bottom: 5, trailing: Metrics.gutter))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                         .swipeActions {
                             Button("Delete", systemImage: "trash", role: .destructive) {
                                 delete(session)
                             }
                         }
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        Picker("sort", selection: $selectedSortOption) {
-                            ForEach(SortOption.allCases) { option in
-                                Text(option.title)
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down")
                     }
                 }
+                .listStyle(.plain)
+                .screenBackground()
             }
-            .navigationTitle("Runs")
+        }
+        .navigationDestination(item: $selected) { session in
+            RunSessionDetailView(session: session)
+        }
+        .navigationTitle("Runs")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Picker("Sort", selection: $selectedSortOption) {
+                        ForEach(SortOption.allCases) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                }
+            }
         }
     }
 
@@ -97,79 +119,121 @@ struct SessionListView: View {
     }
 }
 
-/// Tek bir koşu kaydının özeti: tarih, mesafe, süre ve tempo.
+/// Tek bir koşu kaydının özeti: türü, yeri, tarihi ve üç ölçüsü.
 struct RunSessionRow: View {
     let session: RunSession
-    @State private var district: String = "Run"
+    @State private var district: String?
     @State private var cameraPosition: MapCameraPosition = .automatic
+    private var polylines: [MKPolyline] { session.segments.polylines }
     @Environment(User.self) private var user
-    
+
+    private var isRoute: Bool { session.plannedDistance != nil }
+
     var body: some View {
-        NavigationLink(destination: RunSessionDetailView(session: session)) {
-            VStack {
-                HStack{
-                    VStack(alignment: .leading) {
-                        HStack{
-                            Image(systemName: session.plannedDistance == nil ? "figure.run" : "map")
-                            Text(session.plannedDistance == nil ? "Free Run" : "Route")
-                        }
-                        .font(.title)
-                        
-                        Text(district)
-                            .font(.caption)
-                        Text(session.startedAt.formatted(date: .abbreviated, time: .omitted))
-                            .font(.caption)
+        VStack(spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Image(systemName: isRoute ? "map.fill" : "figure.run")
+                            .font(.system(size: 11, weight: .bold))
+                        Text(isRoute ? "Route" : "Free run")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
                     }
-                    Spacer()
-                    Map(position: $cameraPosition) {
-                        ForEach(Array(session.traveledPath!.polylines.enumerated()), id: \.offset) { _, polyline in
-                            MapPolyline(polyline)
-                                .stroke(.blue, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
-                        }
-                    }
-                    .mapControlVisibility(.hidden)
-                    .allowsHitTesting(false)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .frame(width: 90, height: 90)
+                    .foregroundStyle(isRoute ? Color.emerald : Color.brightOrange)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        (isRoute ? Color.emerald : Color.brightOrange).opacity(0.12),
+                        in: .capsule
+                    )
+
+                    // Semt adı ağdan gelir; gelene kadar satırın yüksekliği
+                    // zıplamasın diye yeri tarih satırıyla birlikte korunur.
+                    Text(district ?? " ")
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .lineLimit(1)
+                        .redacted(reason: district == nil ? .placeholder : [])
+
+                    Text(session.startedAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                HStack{
-                    StatView(title: "Distance", stat: session.distanceMeasurement.formatted())
-                    Divider()
-                    StatView(title: "Time", stat: session.duration.mmss)
-                    Divider()
-                    let paceDif = (user.avgPace - session.pace!) / user.avgPace
-                    HStack{
-                        StatView(title: "Pace", stat: session.pace!.mmss)
-                        Image(systemName: paceDif >= 0 ? "arrow.up" : "arrow.down")
-                            .foregroundStyle(paceDif >= 0 ? .green : .red)
-                            .bold()
-                        Text(paceDif.formatted(.percent.precision(.fractionLength(1))))
-                            .font(.caption)
-                            .foregroundStyle(paceDif >= 0 ? .green : .red)
-                            .bold()
-                    }
+
+                Spacer(minLength: 0)
+
+                Map(position: $cameraPosition, interactionModes: []) {
+                    RouteOverlay(
+                        polylines: polylines,
+                        tint: isRoute ? .emerald : .brightOrange,
+                        density: .compact
+                    )
                 }
+                .mapControlVisibility(.hidden)
+                .allowsHitTesting(false)
+                .frame(width: 84, height: 84)
+                .clipShape(RoundedRectangle(cornerRadius: Metrics.smallRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Metrics.smallRadius, style: .continuous)
+                        .strokeBorder(Color.hairline, lineWidth: 1)
+                )
             }
-            .task {
-                district = (try? await session.district) ?? "Run"
+
+            Divider().overlay(Color.hairline)
+
+            HStack(alignment: .top, spacing: 8) {
+                StatView(
+                    title: "Distance",
+                    stat: session.distanceMeasurement.formatted(
+                        .measurement(width: .abbreviated, usage: .road,
+                                     numberFormatStyle: .number.precision(.fractionLength(2)))
+                    )
+                )
+                StatView(title: "Time", stat: session.duration.mmss)
+                paceStat
             }
-            
+        }
+        .card()
+        .task {
+            cameraPosition = .rect(polylines.framingRect())
+            district = (try? await session.district) ?? "Run"
+        }
+    }
+
+    /// Tempo ve kullanıcının ortalamasına göre farkı. Tempo yoksa (mesafesiz
+    /// kayıt) kıyas da yapılmaz — eskiden burada zorla açılan `nil` vardı.
+    @ViewBuilder
+    private var paceStat: some View {
+        if let pace = session.pace, user.avgPace > 0 {
+            let delta = (user.avgPace - pace) / user.avgPace
+            let isFaster = delta >= 0
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Pace")
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    Text(pace.mmss)
+                        .font(.statValue.monospacedDigit())
+                    Image(systemName: isFaster ? "arrow.up.right" : "arrow.down.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(isFaster ? Color.emerald : Color.secondary)
+                }
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            StatView(title: "Pace", stat: "—")
         }
     }
 }
 
-struct StatView: View {
-    var title: String
-    var stat: String
-    var body: some View {
-        VStack(alignment: .leading){
-            Text(title)
-                .font(.caption)
-                .bold()
-            Text(stat)
-                .font(.title2)
-        }
+#Preview {
+    NavigationStack {
+        SessionListView()
     }
+    .environment(
+        User(name: "Alp", sex: .male, bday: .now, heightCM: 175,
+             weightKG: 70, targetDistance: 5, motivation: .hobby)
+    )
+    .modelContainer(for: [User.self, RunSession.self, TraveledPath.self], inMemory: true)
 }
-
-

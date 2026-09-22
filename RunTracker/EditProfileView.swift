@@ -19,7 +19,7 @@ struct EditProfileView: View {
     var body: some View {
         @Bindable var user = user
         Form {
-            Section("Avatar") {
+            Section {
                 HStack {
                     Spacer()
                     ForEach(Avatar.allCases, id: \.self) { avatar in
@@ -34,11 +34,11 @@ struct EditProfileView: View {
                                     .clipShape(Circle())
                                     .overlay {
                                         Circle()
-                                            .strokeBorder(avatar == user.avatar ? Color.accentColor : Color.clear, lineWidth: 3)
+                                            .strokeBorder(avatar == user.avatar ? Color.brightOrange : Color.hairline, lineWidth: 3)
                                     }
                                 Text(avatar.name)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                                    .foregroundStyle(avatar == user.avatar ? .primary : .secondary)
                             }
                         }
                         .buttonStyle(.plain)
@@ -46,9 +46,11 @@ struct EditProfileView: View {
                     }
                 }
                 .padding(.vertical, 4)
+            } header: {
+                SectionLabel(text: "Avatar")
             }
 
-            Section("About You") {
+            Section {
                 TextField("Your name", text: $user.name)
                     .textContentType(.name)
                 Picker("Sex", selection: $user.sex) {
@@ -57,20 +59,37 @@ struct EditProfileView: View {
                     Text("Other").tag(Sex.neither)
                 }
                 DatePicker("Date of Birth", selection: $user.bday, displayedComponents: .date)
+            } header: {
+                SectionLabel(text: "About you")
             }
 
-            Section("Height") {
-                TextField("Height", value: $user.heightCM, format: .number.precision(.fractionLength(0...2)))
-                    .keyboardType(.decimalPad)
+            Section {
+                HStack {
+                    Text("Height")
+                    Spacer()
+                    TextField("175", value: $user.heightCM, format: .number.precision(.fractionLength(0...2)))
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(maxWidth: 80)
+                    Text("cm").foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text("Weight")
+                    Spacer()
+                    TextField("70", value: $user.weightKG, format: .number.precision(.fractionLength(0...2)))
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(maxWidth: 80)
+                    Text("kg").foregroundStyle(.secondary)
+                }
+                if !isHeightValid || !isWeightValid {
+                    validationMessage("Height 50–250 cm, weight 20–300 kg.")
+                }
+            } header: {
+                SectionLabel(text: "Body")
             }
 
-            Section("Weight") {
-                TextField("Weight", value: $user.weightKG, format: .number.precision(.fractionLength(0...2)))
-                    .keyboardType(.decimalPad)
-
-            }
-
-            Section("Your Goal") {
+            Section {
                 HStack {
                     Text("Target Distance")
                     Spacer()
@@ -92,8 +111,11 @@ struct EditProfileView: View {
                     Text(user.weeklyTarget.formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(0...2)))))
                         .foregroundStyle(.secondary)
                 }
+            } header: {
+                SectionLabel(text: "Your goal")
             }
         }
+        .screenBackground()
         .navigationTitle("Edit Profile")
         .navigationBarTitleDisplayMode(.inline)
     }

@@ -40,6 +40,21 @@ struct FreeRunView: View {
             MapPitchToggle()
             MapScaleView()
         }
+        .safeAreaInset(edge: .top) {
+            // Serbest koşuda takip edilecek bir rota yok; üst şerit yalnızca
+            // geri dönüşü ve ekranın ne olduğunu taşır.
+            HStack(spacing: 12) {
+                backButton
+                Label("Free run", systemImage: "figure.run")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .frame(maxWidth: .infinity)
+                backButton.hidden()
+            }
+            .padding(14)
+            .glassEffect(.regular, in: .rect(cornerRadius: 26, style: .continuous))
+            .padding(.horizontal, Metrics.gutter)
+            .padding(.top, 6)
+        }
         .safeAreaInset(edge: .bottom) {
             statsBar
         }
@@ -57,46 +72,76 @@ struct FreeRunView: View {
             // Kullanıcı dururken dönerse harita yine de onunla dönsün.
             camera.follow(location: locationManager.userLocation, heading: locationManager.travelDirection)
         }
-        .navigationTitle("Free run")
-        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// Ekranın tek gezinme öğesi: koşu ekranları tam ekran açılır, gezinme
+    /// çubuğu taşımazlar. Koşuyu KAYDETMEZ — kaydeden düğme alttaki "End run".
+    private var backButton: some View {
+        Button {
+            dismiss()
+        } label: {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.primary)
+                .frame(width: 38, height: 38)
+        }
+        .glassEffect(.regular, in: .circle)
+        .accessibilityLabel("Back")
     }
 
     /// Mesafe, süre ve koşuyu bitirme düğmesini taşıyan alt şerit.
     private var statsBar: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(distanceMeasurement.formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(2)))))
-                    .font(.headline.monospacedDigit())
-                Text(startedAt, style: .timer)
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                if locationManager.isPaused {
-                    Text("Paused")
+        VStack(spacing: 14) {
+            HStack(alignment: .center, spacing: 14) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(distanceMeasurement.formatted(
+                        .measurement(width: .abbreviated, usage: .road,
+                                     numberFormatStyle: .number.precision(.fractionLength(2))))
+                    )
+                    .font(.display(24, weight: .bold))
+                    .monospacedDigit()
+                    Text("distance")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-            }
 
-            Spacer()
+                Divider().frame(height: 34).overlay(Color.primary.opacity(0.12))
 
-            // Takip kapatılınca kullanıcı haritayı serbestçe inceleyebilir.
-            Button {
-                camera.isFollowing.toggle()
-            } label: {
-                Image(systemName: camera.isFollowing ? "location.fill" : "location.slash")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(startedAt, style: .timer)
+                        .font(.display(24, weight: .bold))
+                        .monospacedDigit()
+                    Text(locationManager.isPaused ? "paused" : "elapsed")
+                        .font(.caption)
+                        .foregroundStyle(locationManager.isPaused ? .brightOrange : .secondary)
+                }
+
+                Spacer(minLength: 0)
+
+                // Takip kapatılınca kullanıcı haritayı serbestçe inceleyebilir.
+                Button {
+                    camera.isFollowing.toggle()
+                } label: {
+                    Image(systemName: camera.isFollowing ? "location.fill" : "location.slash")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(camera.isFollowing ? .brightOrange : .secondary)
+                        .frame(width: 38, height: 38)
+                }
+                .glassEffect(.regular, in: .circle)
+                .accessibilityLabel(camera.isFollowing ? "Stop following" : "Follow me")
             }
-            .buttonStyle(.glass)
 
             Button {
                 endRun()
             } label: {
                 Label("End run", systemImage: "stop.fill")
             }
-            .buttonStyle(.glassProminent)
-            .tint(.red)
+            .buttonStyle(PrimaryButtonStyle())
         }
-        .padding()
-        .background(.regularMaterial)
+        .padding(16)
+        .glassEffect(.regular, in: .rect(cornerRadius: 26, style: .continuous))
+        .padding(.horizontal, Metrics.gutter)
+        .padding(.bottom, 6)
     }
 
     /// Koşuyu bitirir: geçilen yolu bir `RunSession` ve yeni bir `TraveledPath`
@@ -119,7 +164,6 @@ struct FreeRunView: View {
 }
 
 #Preview {
-    NavigationStack {
-        FreeRunView()
-    }
+    FreeRunView()
+        .modelContainer(for: [User.self, RunSession.self, TraveledPath.self], inMemory: true)
 }

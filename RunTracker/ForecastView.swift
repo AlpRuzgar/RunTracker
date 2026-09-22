@@ -14,215 +14,180 @@ extension CLLocation {
     func getCityDistrict() async throws -> String {
         let geocoder = CLGeocoder()
         let placemarks = try await geocoder.reverseGeocodeLocation(self)
-        
+
         guard let placemark = placemarks.first else {
             throw NSError(domain: "Geocoding", code: 0, userInfo: [NSLocalizedDescriptionKey: "Konum bulunamadı"])
         }
-        
+
         // Şehir
         let city = placemark.locality ?? ""
         // İlçe / semt
         let district = placemark.subLocality ?? ""
-        
-        return "\(district), \(city)"
+
+        return district.isEmpty ? city : "\(district), \(city)"
     }
 }
 
+/// Hava kartı: uygulamanın tek renkli yüzeyi.
+///
+/// `lightBlue` burada yaşar — paletin "serin" rengi, serin olması anlamlı olan
+/// tek bağlamda. Gündüz gökyüzü maviden güneşin turuncusuna geçer, böylece kart
+/// sıcak paletin dışına düşmez; gece `midnight`e iner.
+///
+/// Yazı rengi zemine göre seçilir: gündüz açık mavinin üstünde beyaz yazı
+/// 2:1'lik kontrastla okunmaz, koyu yazı 7:1'e çıkar (bkz. `Color.onAccent`).
 struct ForecastView: View {
-    @State var location: CLLocation
+    let location: CLLocation
     @State private var currentWeather: CurrentWeather?
     @State private var hourlyForecast: Forecast<HourWeather>?
-    @State var backgroundColors: [Color] = [.white]
-    @State var hourTextColor: Color = .black
-    
-    @State private var district: String = ""
-        
-    var body: some View {
-        GlassEffectContainer(spacing: 20) {
-            VStack(spacing: 16) {
-                if let currentWeather {
-                    CurrentWeatherView(weather: currentWeather, district: district)
-                        .padding([.horizontal, .top])
-                        .transition(.blurReplace.combined(with: .move(edge: .top)))
-                    if let hourlyForecast {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 12) {
-                                ForEach(hourlyForecast, id: \.date) { hour in
-                                    HourWeatherView(weather: hour, textColor: .white)
-                                        .scrollTransition { content, phase in
-                                            content
-                                                .opacity(phase.isIdentity ? 1 : 0.4)
-                                                .scaleEffect(phase.isIdentity ? 1 : 0.85)
-                                        }
-                                }
-                            }
-                            .padding([.horizontal, .bottom])
-                        }
-                        .transition(.blurReplace.combined(with: .move(edge: .bottom)))
-                    }
-                } else {
-                    ProgressView("Fetching forecast…")
-                        .padding(32)
-                        .glassEffect(in: .rect(cornerRadius: 24))
-                        .padding(.vertical, 40)
-                }
-            }
-            .foregroundStyle(.white)
-        }
-        .frame(maxWidth: .infinity)
-        .background(
-            LinearGradient(colors: backgroundColors, startPoint: .topLeading, endPoint: .bottomTrailing)
+    @State private var district = ""
+
+    private var isDay: Bool { currentWeather?.isDaylight ?? true }
+
+    private var background: LinearGradient {
+        LinearGradient(
+            colors: isDay ? [.lightBlue, .brightOrange.opacity(0.55)] : [.midnight, .steelGray],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
         )
-        .environment(\.colorScheme, .light)
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .task {
-            let current = try? await WeatherService.shared.weather(for: location, including: .current)
-            let hourly = try? await WeatherService.shared.weather(for: location, including: .hourly)
-            let city = (try? await location.getCityDistrict()) ?? ""
-            withAnimation(.spring(duration: 0.7)) {
-                currentWeather = current
-                hourlyForecast = hourly
-                backgroundColors = current!.isDaylight ? [.blue, .cyan, .teal] : [.midnight.exposureAdjust(2.5), .midnight]
-                hourTextColor = current!.isDaylight ? .black : .white
-                district = city
-            }
-        }
     }
-}
 
-struct CurrentWeatherView: View {
-    let weather: CurrentWeather
-    let district: String
-    private var temperatureFormat: Measurement<UnitTemperature>.FormatStyle {
-        .measurement(width: .abbreviated, numberFormatStyle: .number.precision(.fractionLength(0)))
-    }
-    
-    private var textColor: Color {
-        weather.isDaylight ? .secondary : .primary
-    }
+    private var ink: Color { isDay ? .onAccent : .white }
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(district)
-                    Text(weather.date.formatted(date: .abbreviated, time: .shortened))
-                    Text(weather.temperature.formatted(temperatureFormat))
-                        .font(.system(size: 48, weight: .semibold, design: .rounded))
-                        .contentTransition(.numericText())
-                    Text("Feels like \(weather.apparentTemperature.formatted(temperatureFormat))")
-                        .font(.subheadline)
-                    Text(weather.condition.description)
-                        .font(.subheadline.weight(.medium))
+        VStack(alignment: .leading, spacing: 18) {
+            if let currentWeather {
+                current(currentWeather)
+                if let hourlyForecast {
+                    hourly(hourlyForecast)
                 }
+            } else {
+                HStack(spacing: 10) {
+                    ProgressView().tint(ink)
+                    Text("Fetching forecast…")
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 32)
+            }
+        }
+        .foregroundStyle(ink)
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(background)
+        .clipShape(RoundedRectangle(cornerRadius: Metrics.radius, style: .continuous))
+        .animation(.smooth(duration: 0.5), value: currentWeather?.date)
+        .task {
+            async let current = try? WeatherService.shared.weather(for: location, including: .current)
+            async let hourly = try? WeatherService.shared.weather(for: location, including: .hourly)
+            async let city = try? location.getCityDistrict()
+
+            let (c, h, n) = await (current, hourly, city)
+            currentWeather = c
+            hourlyForecast = h
+            district = n ?? ""
+        }
+    }
+
+    // MARK: - Şu an
+
+    private func current(_ weather: CurrentWeather) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    if !district.isEmpty {
+                        Text(district)
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .opacity(0.8)
+                    }
+                    Text(weather.temperature.formatted(Self.temperatureFormat))
+                        .font(.display(46, weight: .bold))
+                        .contentTransition(.numericText())
+                    Text(weather.condition.description)
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                    Text("Feels like \(weather.apparentTemperature.formatted(Self.temperatureFormat))")
+                        .font(.footnote)
+                        .opacity(0.8)
+                }
+
                 Spacer()
+
                 Image(systemName: weather.symbolName)
                     .symbolVariant(.fill)
                     .symbolRenderingMode(.multicolor)
-                    .font(.system(size: 56))
-                    .shadow(radius: 10)
+                    .font(.system(size: 46))
+                    .shadow(color: .black.opacity(0.15), radius: 8, y: 3)
             }
-            .padding(20)
-            .glassEffect(.identity, in: .rect(cornerRadius: 24))
 
-            Grid(horizontalSpacing: 15, verticalSpacing: 15) {
-                GridRow {
-                    WeatherMetricView(
-                        symbol: "wind",
-                        title: "Wind",
-                        value: "\(weather.wind.speed.formatted(.measurement(width: .abbreviated, numberFormatStyle: .number.precision(.fractionLength(0))))) \(weather.wind.compassDirection.abbreviation)",
-                        glass: .regular,
-                        symbolColor: .blue
-                    )
-                    WeatherMetricView(
-                        symbol: "sun.max.fill",
-                        title: "UV \(weather.uvIndex.value)",
-                        value: weather.uvIndex.category.description,
-                        glass: .regular,
-                        symbolColor: .orange
-                    )
-                }
-                GridRow {
-                    WeatherMetricView(
-                        symbol: "humidity.fill",
-                        title: "Humidity",
-                        value: weather.humidity.formatted(.percent),
-                        glass: .regular,
-                        symbolColor: .mint
-                    )
-                    WeatherMetricView(
-                        symbol: "eye.fill",
-                        title: "Visibility",
-                        value: weather.visibility.formatted(.measurement(width: .abbreviated, numberFormatStyle: .number.precision(.fractionLength(0)))),
-                        glass: .regular,
-                        symbolColor: .green
-                    )
-                }
+            HStack(spacing: 8) {
+                metric("wind", "Wind", "\(weather.wind.speed.formatted(Self.shortFormat)) \(weather.wind.compassDirection.abbreviation)")
+                metric("sun.max.fill", "UV", "\(weather.uvIndex.value)")
+                metric("humidity.fill", "Humidity", weather.humidity.formatted(.percent.precision(.fractionLength(0))))
             }
-            .padding(.top, 8)
         }
     }
-}
 
-struct WeatherMetricView: View {
-    let symbol: String
-    let title: String
-    let value: String
-    let glass: Glass
-    let symbolColor: Color
-
-    var body: some View {
-        HStack(spacing: 6) {
+    /// Tek bir ölçüm kutusu. Cam yerine düz, yarı saydam bir dolgu: cam etkisi
+    /// yalnızca haritanın üstünde kullanılır (bkz. `Theme.swift`).
+    private func metric(_ symbol: String, _ title: String, _ value: String) -> some View {
+        VStack(spacing: 4) {
             Image(systemName: symbol)
-                .symbolRenderingMode(.hierarchical)
-                .font(.title3)
-                .frame(maxWidth: .infinity)
-                .foregroundStyle(symbolColor)
-            VStack{
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.midnight)
-                Text(value)
-                    .font(.footnote.weight(.semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .foregroundStyle(.midnight)
-
-            }
-            .frame(maxWidth: .infinity)
-            Spacer()
+                .font(.system(size: 14, weight: .semibold))
+            Text(value)
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(title)
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .opacity(0.75)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
-        .glassEffect(glass.tint(.white.opacity(0.8)), in: .rect(cornerRadius: 18))
+        .background(
+            (isDay ? Color.white.opacity(0.28) : Color.white.opacity(0.10)),
+            in: .rect(cornerRadius: Metrics.smallRadius, style: .continuous)
+        )
     }
-}
 
-struct HourWeatherView: View {
-    let weather: HourWeather
-    let textColor: Color
-    
-    var body: some View {
-        VStack(spacing: 8) {
-            Text(weather.date, format: .dateTime.hour(.twoDigits(amPM: .narrow)).minute(.twoDigits))
-                .font(.caption.weight(.medium))
-                .foregroundStyle(textColor)
-            Image(systemName: weather.symbolName)
-                .symbolVariant(.fill)
-                .symbolRenderingMode(.multicolor)
-                .font(.system(size: 32))
-                .shadow(radius: 5)
-            Text(weather.temperature, format: .measurement(width: .abbreviated, numberFormatStyle: .number.precision(.fractionLength(0))))
-                .font(.headline)
-                .foregroundStyle(textColor)
+    // MARK: - Saatlik
+
+    private func hourly(_ forecast: Forecast<HourWeather>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider().overlay(ink.opacity(0.2))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 18) {
+                    ForEach(Array(forecast.prefix(12)), id: \.date) { hour in
+                        VStack(spacing: 7) {
+                            Text(hour.date, format: .dateTime.hour())
+                                .font(.system(size: 12, weight: .medium, design: .rounded))
+                                .opacity(0.8)
+                            Image(systemName: hour.symbolName)
+                                .symbolVariant(.fill)
+                                .symbolRenderingMode(.multicolor)
+                                .font(.system(size: 20))
+                            Text(hour.temperature.formatted(Self.temperatureFormat))
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        }
+                        .scrollTransition { content, phase in
+                            content.opacity(phase.isIdentity ? 1 : 0.35)
+                        }
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+            .scrollClipDisabled()
         }
-        .padding(.vertical, 14)
-        .padding(.horizontal, 18)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .glassEffect(.identity)
     }
+
+    private static let temperatureFormat: Measurement<UnitTemperature>.FormatStyle =
+        .measurement(width: .abbreviated, numberFormatStyle: .number.precision(.fractionLength(0)))
+
+    private static let shortFormat: Measurement<UnitSpeed>.FormatStyle =
+        .measurement(width: .abbreviated, numberFormatStyle: .number.precision(.fractionLength(0)))
 }
 
 #Preview {
     ForecastView(location: CLLocation(latitude: 41, longitude: 28))
+        .padding()
+        .background(Color.canvas)
 }

@@ -7,6 +7,7 @@
 
 import Foundation
 import CoreLocation
+import MapKit
 
 nonisolated struct RoutePoint: Codable {
     var latitude: Double
@@ -25,4 +26,15 @@ nonisolated struct RoutePoint: Codable {
 /// Duraklamalarla bölünen, kesintisiz koşulan tek bir parça.
 nonisolated struct RouteSegment: Codable {
     var points: [RoutePoint]
+}
+
+extension Array where Element == RouteSegment {
+    /// Parçaların harita çizgileri. Duraklamayla bölünmüş yol tek bir çizgide
+    /// birleştirilmez: aradaki boşluk düz bir çizgiyle bağlanmış görünürdü.
+    var polylines: [MKPolyline] {
+        map { segment in
+            let coordinates = segment.points.map(\.coordinate)
+            return MKPolyline(coordinates: coordinates, count: coordinates.count)
+        }
+    }
 }

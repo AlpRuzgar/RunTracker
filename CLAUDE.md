@@ -60,10 +60,13 @@ Tests reflect this split: `LoopGeometryTests.swift` covers the network-free geom
 
 ### Navigation and tracking
 
-- `FollowablePath` is the protocol `NavigationViewModel` follows; both `GeneratedRoute` (has MapKit `legs`, so it has turn instructions) and the SwiftData `TraveledPath` (no legs → instruction-free following) conform. Navigation never learns where a path came from.
+- `FollowablePath` is the protocol `NavigationViewModel` follows; `GeneratedRoute` (has MapKit `legs`, so it has turn instructions), the SwiftData `TraveledPath`, and `ReversedPath` (no legs → instruction-free following) all conform. Navigation never learns where a path came from. `reversed()` flips geometry only: `MKRoute` steps are directional and cannot be reversed, so the reversed direction is followed without turn instructions — direction arrows carry the heading.
 - `NavigationViewModel` does not observe location itself — the view calls `update(location:)`. It handles route matching, off-route confirmation, rerouting (with its own cooldown, because MapKit throttles), and arrival.
+- **A run does not have to start at the route's beginning.** `start(path:)` only builds the route and enters `.waitingToStart`; the run begins when the user comes within `startRadius` of the route, joining at whatever point they are nearest (`entryMatch`). Progress, `journeyDistance`, and arrival are all measured from that entry point, not from the route's start — so a runner joining mid-loop sees an empty progress bar and only the distance left to the finish. `entryMatch` breaks near-ties toward the *earliest* point on purpose: a loop's first and last point are the same coordinate, so tie-breaking the other way would mark a run finished before it started.
 - `LocationManager` (`@Observable`, `CLLocationManagerDelegate`) owns permission, the recorded `pathSegments`, and auto-pause. Pauses **split the path into a new segment**, which is why paths are `[[CLLocationCoordinate2D]]` everywhere rather than a flat array.
 - `RunCamera` keeps the map centered on the user, tilted, and rotated to travel direction, falling back to compass heading when stopped.
+- **Draw routes with `RouteOverlay` (RouteArrow.swift), never a bare `MapPolyline`.** It bundles the line with its direction arrows, because the line alone is ambiguous: a loop doesn't show which way round it goes, and a reversed route is pixel-identical to the forward one. Pass `density: .compact` for list thumbnails. Maps whose camera moves continuously (navigation, the main map) must pass pre-computed `arrows` and keep them in `@State`, or the whole route gets re-measured on every camera frame.
+- `NavigationView` is presented with `.fullScreenCover` from all three entry points (main map, favorites sheet, session detail) — it is its own screen with a single back button, not a page pushed onto a stack, and never inside the favorites sheet.
 
 ### Data model (SwiftData)
 
@@ -74,6 +77,23 @@ Tests reflect this split: `LoopGeometryTests.swift` covers the network-free geom
 - `TraveledPath` — a reusable recorded path that can be favorited and re-navigated (`FavoritePathsSheet`).
 - Coordinates are persisted as `RouteSegment`/`RoutePoint` (`Codable` structs), not `CLLocationCoordinate2D`. The planned route is never persisted — only what was actually run; map overlays (`RunRouteOverlay`) are derived in the view each time.
 
+### Design system
+
+`RunTracker/Theme.swift` is the single source of the app's look. Use it rather than inventing colors, radii or shadows in a view — the repeated inline `colorScheme == .dark ? .steelGray : .white` card is exactly what it replaced.
+
+- **Palette roles are fixed.** `brightOrange` is primary (actions, focus, active tab, `AccentColor`); `emerald` is progress/success *and every route line on every map*; `lightBlue` is tertiary and lives almost entirely in the weather card. Backgrounds are the warm neutrals `canvas` / `surface` / `hairline`, which are the only colorsets with real light/dark variants.
+- **Filled accent buttons use dark text** (`Color.onAccent`), never white. `brightOrange` (#FB923C) and `emerald` (#10B981) are light enough that white text lands under 3:1; dark text clears 7:1. This is a contrast requirement, not a style choice.
+- **Glass is for maps only.** `glassEffect` belongs on controls floating over a live map (Run, Navigation, Free Run) where you need to see through. Every other surface is a flat `.card()`.
+- Type: `Font.display(_:weight:)` / `.screenTitle` / `.statValue` are SF Rounded, used for numbers and titles; body text stays SF Pro. Live numbers (timers, distances) also need `.monospacedDigit()` or they jitter as digits change.
+- Building blocks: `.card()`, `.screenBackground()`, `ScreenHeader`, `SectionLabel`, `StatView`, `ProgressBar`, `EmptyStateView`, `PrimaryButtonStyle`, `SecondaryButtonStyle`.
+
+Two traps worth remembering:
+
+- **Never put a `List` inside a `ScrollView`.** Home and Profile both did; the nested scroll areas clipped rows to a fixed height. Both now use `LazyVStack`. `SessionListView` keeps a real `List` because it needs swipe-to-delete, with clear row backgrounds and hidden separators.
+- **Pin `usage:` when formatting a `Measurement`.** Without it the formatter picks its own unit and renders 0 km as "0 cm". Use `usage: .asProvided` (or `.road`).
+
 ### Screens
 
-`MainView` is a three-tab `TabView`: `HomeView` (weather/forecast, this week's sessions, quick route), `MapView` (generate and preview a route, entry point to navigation and favorites), `ProfileView` (stats, `EditProfileView`). Run screens are pushed from there: `NavigationView` (guided run on a `FollowablePath`) and `FreeRunView` (untracked-route run).
+`MainView` is a three-tab `TabView`: `HomeView` (greeting, weekly goal, forecast, recent runs), `MapView` (generate and preview a route, entry point to navigation and favorites), `ProfileView` (identity, weekly goal, all-time stats, this week's runs).
+
+**Both run screens — `NavigationView` and `FreeRunView` — are presented with `.fullScreenCover`, never pushed.** They carry no navigation bar: a glass banner at the top holds the single back button, a glass panel at the bottom holds the numbers and the end-run action. `RunSessionDetailView` and `SessionListView` are ordinary pushed screens with a normal bar.

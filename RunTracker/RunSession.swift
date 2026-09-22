@@ -39,10 +39,17 @@ final class RunSession {
         Measurement(value: distance, unit: .meters)
     }
     var pace: TimeInterval? { distance > 0 ? duration / distanceInKm : nil }
+    /// Koşunun başladığı yerin ilçe/semt adı. Rota üzerinden gidilen koşularda
+    /// da serbest koşularda da kaynak `traveledPath`'tir (`FollowablePath`);
+    /// başlangıç konumu hiç kaydedilmediyse (ör. GPS sabitlenmeden bitirilen
+    /// bir serbest koşu) hata fırlatır.
+    @MainActor
     var district: String {
         get async throws {
-            let firstLocation = segments.first?.points.first
-            let location = CLLocation(latitude: firstLocation!.latitude, longitude: firstLocation!.longitude)
+            guard let coordinate = traveledPath?.startCoordinate else {
+                throw NSError(domain: "RunSession", code: 0, userInfo: [NSLocalizedDescriptionKey: "Kaydedilmiş yol yok"])
+            }
+            let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
             return try await location.getCityDistrict()
         }
     }

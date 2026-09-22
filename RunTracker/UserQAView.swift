@@ -71,7 +71,7 @@ struct UserQAView: View {
 
             footer
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Color.canvas)
         .animation(.snappy, value: questionIndex)
     }
 
@@ -81,11 +81,11 @@ struct UserQAView: View {
         VStack(spacing: 36) {
             VStack(spacing: 16) {
                 Image(systemName: "figure.run.circle.fill")
-                    .font(.system(size: 84))
-                    .foregroundStyle(.tint)
+                    .font(.system(size: 78))
+                    .foregroundStyle(.brightOrange)
 
                 Text("Welcome to RunTracker")
-                    .font(.largeTitle.bold())
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
                     .multilineTextAlignment(.center)
 
                 Text("Answer a few quick questions so we can tailor routes and goals to you.")
@@ -212,7 +212,7 @@ struct UserQAView: View {
                     .foregroundStyle(.secondary)
             }
 
-            ProgressView(value: Double(questionIndex), total: Double(lastStep))
+            ProgressBar(value: Double(questionIndex) / Double(lastStep), tint: .brightOrange, height: 5)
         }
         .padding(.horizontal, 24)
         .padding(.top, 16)
@@ -227,22 +227,18 @@ struct UserQAView: View {
             }
         } label: {
             Text(primaryButtonTitle)
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
+        .buttonStyle(PrimaryButtonStyle())
         .disabled(!canAdvance)
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
-        .background(.bar)
+        .background(Color.canvas)
     }
 
     private func stepTitle(_ title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.largeTitle.bold())
+                .font(.system(size: 32, weight: .bold, design: .rounded))
             Text(subtitle)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -261,9 +257,10 @@ struct UserQAView: View {
         VStack(alignment: .leading, spacing: 12, content: content)
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                Color(.secondarySystemGroupedBackground),
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .background(Color.surface, in: RoundedRectangle(cornerRadius: Metrics.smallRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: Metrics.smallRadius, style: .continuous)
+                    .strokeBorder(Color.hairline, lineWidth: 1)
             )
     }
 
@@ -287,13 +284,13 @@ struct UserQAView: View {
     private func featureRow(icon: String, title: String, subtitle: String) -> some View {
         HStack(alignment: .top, spacing: 16) {
             Image(systemName: icon)
-                .font(.title2)
-                .foregroundStyle(.tint)
-                .frame(width: 36)
+                .font(.title3)
+                .foregroundStyle(.brightOrange)
+                .frame(width: 34)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.headline)
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
                 Text(subtitle)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -308,7 +305,7 @@ struct UserQAView: View {
             HStack(spacing: 14) {
                 Image(systemName: option.icon)
                     .font(.title3)
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(.brightOrange)
                     .frame(width: 32)
 
                 Text(option.title)
@@ -318,16 +315,16 @@ struct UserQAView: View {
 
                 Image(systemName: motivation == option ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(motivation == option ? Color.accentColor : Color(.tertiaryLabel))
+                    .foregroundStyle(motivation == option ? Color.brightOrange : Color(.tertiaryLabel))
             }
             .padding(16)
             .background(
-                Color(.secondarySystemGroupedBackground),
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                motivation == option ? Color.brightOrange.opacity(0.10) : Color.surface,
+                in: RoundedRectangle(cornerRadius: Metrics.smallRadius, style: .continuous)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(motivation == option ? Color.accentColor : .clear, lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: Metrics.smallRadius, style: .continuous)
+                    .strokeBorder(motivation == option ? Color.brightOrange : Color.hairline, lineWidth: 1.5)
             )
         }
         .buttonStyle(.plain)

@@ -14,157 +14,159 @@ struct ProfileView: View {
     @Environment(User.self) private var user
     /// Oturumlar doğrudan değil, kullanıcı ilişkisi üzerinden okunur;
     /// böylece liste onboarding'de oluşturulan kullanıcıya bağlıdır.
-    
+
     @Query private var currentWeekSessions: [RunSession]
-    @Environment(\.colorScheme) private var colorScheme
 
     init() {
         _currentWeekSessions = Query(filter: RunSession.currentWeekPredicate(),
-                                     sort: \.startedAt)
+                                     sort: \.startedAt, order: .reverse)
     }
-    
+
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack {
-                    profileBar()
-                    currentStats()
-                    InfoCard(title: "Life-time Stats", card: lifetimeStats)
-                    InfoCard(title:"This Week's Sessions", card: sessionsThisWeek)
+                VStack(spacing: Metrics.stack) {
+                    profileBar
+                    weeklyGoal
+                    lifetimeStats
+                    sessionsThisWeek
                 }
-                .padding()
-                .navigationTitle("Profile")
+                .padding(.horizontal, Metrics.gutter)
+                .padding(.bottom, 28)
             }
-            .background(LinearGradient(colors: [.lightBlue, .lightBlue.opacity(0.1)], startPoint: .bottomTrailing, endPoint: .topLeading))
+            .screenBackground()
+            .navigationTitle("Profile")
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
-    
-    @ViewBuilder
-    func profileBar() -> some View {
-        HStack{
+
+    // MARK: - Kimlik
+
+    private var profileBar: some View {
+        HStack(spacing: 14) {
             Image(user.avatar.image)
                 .resizable()
-                .frame(width: 80, height: 80)
+                .scaledToFill()
+                .frame(width: 62, height: 62)
                 .clipShape(Circle())
-            VStack(alignment: .leading) {
+                .overlay(Circle().strokeBorder(Color.hairline, lineWidth: 1))
+
+            VStack(alignment: .leading, spacing: 2) {
                 Text(user.name)
-                    .font(.system(size: 20))
-                Text("Joined at: \(user.createdAt.formatted(date: .abbreviated, time: .omitted))")
-                    .font(.caption)
-                    .bold()
+                    .font(.display(22, weight: .semibold))
+                Text("Running since \(user.createdAt.formatted(date: .abbreviated, time: .omitted))")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity)
-            
-            NavigationLink(destination: EditProfileView()) {
-                Image(systemName: "person.badge.gearshape")
-                    .font(.system(size: 25))
+
+            Spacer()
+
+            NavigationLink {
+                EditProfileView()
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.brightOrange)
+                    .frame(width: 40, height: 40)
+                    .background(Color.brightOrange.opacity(0.12), in: .circle)
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .accessibilityLabel("Edit profile")
         }
-        .padding()
-        .background(colorScheme == .dark ? .steelGray : .white)
-        .clipShape(RoundedRectangle(cornerRadius: 15))
-        .shadow(radius: 5)
+        .card()
     }
 
-    @ViewBuilder
-    func currentStats() -> some View {
-        VStack {
-            let totalDistance = Measurement(value: currentWeekSessions.reduce(0) { $0 + $1.distanceMeasurement.value}, unit: UnitLength.meters)
-            let totalDistanceString = totalDistance.formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(2))))
-            let completionPercentage = totalDistance.converted(to: .kilometers).value / user.weeklyTarget.converted(to: .kilometers).value
+    // MARK: - Haftalık hedef
+
+    private var weeklyGoal: some View {
+        let target = user.weeklyTarget.converted(to: .kilometers).value
+        let done = currentWeekSessions.reduce(0) { $0 + $1.distanceInKm }
+        let fraction = target > 0 ? done / target : 0
+
+        return VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Image(systemName: "flag")
-                    .bold()
-                Text("Weekly goal")
-                    .bold()
-                Spacer()
-                Text(completionPercentage >= 100.0 ? "%100" : completionPercentage.formatted(.percent.precision(.fractionLength(1))))
-                    .bold()
+                SectionLabel(text: "Weekly goal")
+                Text(fraction.formatted(.percent.precision(.fractionLength(0))))
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(fraction >= 1 ? .emerald : .secondary)
             }
+
+            ProgressBar(value: fraction)
+
             HStack {
-                PercentageBarView(progress: completionPercentage)
-            }
-            HStack {
-                Text("\(totalDistanceString)")
+                Text("\(done.formatted(.number.precision(.fractionLength(1)))) km done")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
                 Spacer()
-                Text("Target Distance: \(user.weeklyTarget.formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(0...2)))))")
+                Text("\(target.formatted(.number.precision(.fractionLength(0)))) km target")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
             }
         }
-        .padding()
-        .background(colorScheme == .dark ? .steelGray : .white)
-        .clipShape(RoundedRectangle(cornerRadius: 15))
-        .shadow(radius: 5)
+        .card()
     }
 
-    @ViewBuilder
-    func lifetimeStats() -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150))]){
-            let totalDistance = Measurement(value: user.sessions.reduce(0) { $0 + $1.distanceMeasurement.value }, unit: UnitLength.meters)
-            StatView(title: "Total Distance", stat: "\(totalDistance.converted(to: .kilometers).formatted())")
-            StatView(title: "Total Time", stat: user.totalDuration.mmss)
-            StatView(title: "Average Pace", stat: user.avgPace.mmss)
+    // MARK: - Tüm zamanlar
+
+    private var lifetimeStats: some View {
+        let total = Measurement(value: user.sessions.reduce(0) { $0 + $1.distanceMeasurement.value },
+                                unit: UnitLength.meters)
+
+        return VStack(alignment: .leading, spacing: 14) {
+            SectionLabel(text: "All time")
+            HStack(alignment: .top, spacing: 8) {
+                // `usage` verilmezse biçimlendirici birimi kendi seçer ve
+                // 0 km'yi "0 cm" diye yazar; `asProvided` kilometreyi sabitler.
+                StatView(
+                    title: "Distance",
+                    stat: total.converted(to: .kilometers)
+                        .formatted(.measurement(width: .abbreviated, usage: .asProvided,
+                                                numberFormatStyle: .number.precision(.fractionLength(1)))),
+                    tint: .brightOrange
+                )
+                StatView(title: "Time", stat: user.totalDuration.mmss)
+                StatView(title: "Avg pace", stat: user.avgPace.mmss)
+                StatView(title: "Runs", stat: "\(user.sessionCount)")
+            }
         }
+        .card()
     }
-    
-    @ViewBuilder
-    func sessionsThisWeek() -> some View {
-        VStack {
-            if !currentWeekSessions.isEmpty {
-                List(currentWeekSessions) { session in
-                    RunSessionRow(session: session)
+
+    // MARK: - Bu haftanın koşuları
+
+    private var sessionsThisWeek: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                SectionLabel(text: "This week")
+                NavigationLink {
+                    SessionListView()
+                } label: {
+                    Text("All")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
                 }
-                NavigationLink(destination: SessionListView()) {
-                    HStack {
-                        Text("All Sessions")
-                        Spacer()
-                        Image(systemName: "arrow.right")
+            }
+            .padding(.horizontal)
+
+            if currentWeekSessions.isEmpty {
+                EmptyStateView(
+                    icon: "calendar",
+                    title: "Nothing logged this week",
+                    message: "Your runs will show up here."
+                )
+                .card()
+            } else {
+                // `ScrollView` içinde `List` kullanılmıyor: iki kaydırma alanı
+                // iç içe geçtiğinde satırlar kırpılıyordu.
+                LazyVStack(spacing: 10) {
+                    ForEach(currentWeekSessions) { session in
+                        NavigationLink {
+                            RunSessionDetailView(session: session)
+                        } label: {
+                            RunSessionRow(session: session)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
-            else {
-                Text("No sessions this week!")
-            }
         }
-    }
-}
-
-struct RibbonView: View {
-    var body: some View {
-        
-    }
-}
-
-struct InfoCard<Card: View>: View {
-    var title: String
-    @ViewBuilder var card: () -> Card
-    @Environment(\.colorScheme) private var colorScheme
-    var body: some View {
-        VStack {
-            Text(title)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .font(.title2)
-                .bold()
-                .padding(.bottom)
-            card()
-        }
-        .padding()
-        .background(colorScheme == .dark ? .steelGray : .white)
-        .clipShape(RoundedRectangle(cornerRadius: 15))
-        .shadow(radius: 5)
-    }
-}
-
-struct PercentageBarView: View {
-    @State var progress: Double
-    
-    var body: some View {
-        VStack(spacing: 10) {
-            // Progress bar showing percentage
-            ProgressView(value: progress, total: 1.0)
-                .tint(.lightBlue)
-        }
-        .padding()
     }
 }
 
@@ -175,4 +177,20 @@ extension TimeInterval {
         let seconds = totalSeconds % 60
         return String(format: "%02d:%02d", minutes, seconds)
     }
+}
+
+#Preview {
+    ProfileView()
+        .environment(
+            User(
+                name: "Alp",
+                sex: .male,
+                bday: .now,
+                heightCM: 175,
+                weightKG: 70,
+                targetDistance: 5,
+                motivation: .hobby
+            )
+        )
+        .modelContainer(for: [User.self, RunSession.self, TraveledPath.self], inMemory: true)
 }

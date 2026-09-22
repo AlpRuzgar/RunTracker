@@ -8,25 +8,28 @@ import Foundation
 import SwiftUI
 import WeatherKit
 
-struct WeatherView : View {
+/// Sıcaklığı tek satırda gösteren küçük rozet. Haritanın üstünde de
+/// kullanılabildiği için zemini cam.
+struct WeatherView: View {
     @State var currentWeather: CurrentWeather?
     @State var locationManager = LocationManager()
 
     var body: some View {
-        HStack {
+        Group {
             if let weather = currentWeather {
-                HStack {
+                HStack(spacing: 6) {
                     Image(systemName: weather.symbolName)
                         .symbolVariant(.fill)
                         .symbolRenderingMode(.multicolor)
-                        .font(.system(size: 25))
+                        .font(.system(size: 17))
                     Text(weather.temperature.formatted(
                         .measurement(width: .abbreviated, numberFormatStyle: .number.precision(.fractionLength(0)))
                     ))
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
                 }
-                .padding(8)
-                .glassEffect(.regular , in: .capsule)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .glassEffect(.regular, in: .capsule)
             } else {
                 ProgressView()
             }
