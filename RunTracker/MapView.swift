@@ -7,6 +7,7 @@
 
 import SwiftUI
 import MapKit
+import SwiftData
 
 struct MapView: View {
     /// Uygulama genelinde paylaşılan tek üretim motoru (bkz. `RunTrackerApp`).
@@ -15,6 +16,8 @@ struct MapView: View {
     @State private var distance: Double = 0.0
     @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
     @FocusState private var isDistanceFocused: Bool
+    
+    @State private var isShowingSheet = false
 
     var body: some View {
         NavigationStack {
@@ -50,6 +53,10 @@ struct MapView: View {
                 }
             }
         }
+        .sheet(isPresented: $isShowingSheet) {
+            FavoritePathsSheet()
+                .padding(.top, 30)
+        }
     }
 
     /// Haritanın üzerinde yüzen kontrol paneli. Ayrı cam parçaları tek
@@ -83,6 +90,21 @@ struct MapView: View {
                         .transition(.scale(scale: 0.8).combined(with: .opacity))
                 }
 
+                Button {
+                    isShowingSheet.toggle()
+                } label: {
+                    HStack {
+                        Image(systemName: "star.fill")
+                            .foregroundStyle(.yellow)
+                        Text("Favorite Paths")
+                    }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 14)
+                    .glassEffect()
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+                
                 distanceField
 
                 HStack(spacing: 12) {

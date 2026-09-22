@@ -101,9 +101,9 @@ struct ProfileView: View {
     func lifetimeStats() -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150))]){
             let totalDistance = Measurement(value: user.sessions.reduce(0) { $0 + $1.distanceMeasurement.value }, unit: UnitLength.meters)
-            StatView(icon: "ruler", value: "\(totalDistance.converted(to: .kilometers).formatted())")
-            StatView(icon: "timer", value: user.totalDuration.mmss)
-            StatView(icon: "figure.run", value: user.avgPace.mmss)
+            StatView(title: "Total Distance", stat: "\(totalDistance.converted(to: .kilometers).formatted())")
+            StatView(title: "Total Time", stat: user.totalDuration.mmss)
+            StatView(title: "Average Pace", stat: user.avgPace.mmss)
         }
     }
     
@@ -165,24 +165,6 @@ struct PercentageBarView: View {
                 .tint(.lightBlue)
         }
         .padding()
-    }
-}
-
-
-struct StatView: View {
-    let icon: String
-    let value: String
-    
-    var body: some View {
-        VStack(alignment: .leading) {
-            Image(systemName: icon)
-            Text(value)
-                .font(.system(size: 30))
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 40)
-        .padding()
-        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
 

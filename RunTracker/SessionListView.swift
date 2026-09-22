@@ -98,48 +98,12 @@ struct SessionListView: View {
 }
 
 /// Tek bir koşu kaydının özeti: tarih, mesafe, süre ve tempo.
-//struct RunSessionRow: View {
-//    let session: RunSession
-//    var body: some View {
-//        NavigationLink(destination: RunSessionDetailView(session: session)) {
-//            VStack(alignment: .leading, spacing: 6) {
-//                HStack {
-//                    // Rotalı koşu ile serbest koşu simgeden ayırt edilir.
-//                    Image(systemName: session.plannedDistance == nil ? "figure.run" : "map")
-//                        .foregroundStyle(.tint)
-//                    Text(session.startedAt, format: .dateTime.day().month().year().hour().minute())
-//                        .font(.headline)
-//                }
-//                
-//                HStack(spacing: 16) {
-//                    Label(session.distanceMeasurement.formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(2)))),
-//                          systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-//                    Label(formatted(seconds: session.duration), systemImage: "stopwatch")
-//                    if let pace = session.pace {
-//                        Label("\(formatted(seconds: pace)) /km", systemImage: "speedometer")
-//                    }
-//                }
-//                .font(.subheadline)
-//                .foregroundStyle(.secondary)
-//            }
-//            .padding(.vertical, 4)
-//        }
-//    }
-//    
-//    /// Süreyi dk:sn (bir saati aşarsa sa:dk:sn) biçiminde yazar.
-//    private func formatted(seconds: TimeInterval) -> String {
-//        Duration.seconds(seconds).formatted(
-//            .time(pattern: seconds < 3600 ? .minuteSecond : .hourMinuteSecond)
-//        )
-//    }
-//}
-
 struct RunSessionRow: View {
     let session: RunSession
     @State private var district: String = "Run"
     @State private var cameraPosition: MapCameraPosition = .automatic
     @Environment(User.self) private var user
-
+    
     var body: some View {
         NavigationLink(destination: RunSessionDetailView(session: session)) {
             VStack {
@@ -152,9 +116,9 @@ struct RunSessionRow: View {
                         .font(.title)
                         
                         Text(district)
-                                .font(.caption)
+                            .font(.caption)
                         Text(session.startedAt.formatted(date: .abbreviated, time: .omitted))
-                                .font(.caption)
+                            .font(.caption)
                     }
                     Spacer()
                     Map(position: $cameraPosition) {
@@ -169,13 +133,13 @@ struct RunSessionRow: View {
                     .frame(width: 90, height: 90)
                 }
                 HStack{
-                    statView(title: "Distance", stat: session.distanceMeasurement.formatted())
+                    StatView(title: "Distance", stat: session.distanceMeasurement.formatted())
                     Divider()
-                    statView(title: "Time", stat: session.duration.mmss)
+                    StatView(title: "Time", stat: session.duration.mmss)
                     Divider()
                     let paceDif = (user.avgPace - session.pace!) / user.avgPace
                     HStack{
-                        statView(title: "Pace", stat: session.pace!.mmss)
+                        StatView(title: "Pace", stat: session.pace!.mmss)
                         Image(systemName: paceDif >= 0 ? "arrow.up" : "arrow.down")
                             .foregroundStyle(paceDif >= 0 ? .green : .red)
                             .bold()
@@ -189,12 +153,15 @@ struct RunSessionRow: View {
             .task {
                 district = (try? await session.district) ?? "Run"
             }
-
+            
         }
     }
-    
-    @ViewBuilder
-    func statView(title: String, stat: String) -> some View {
+}
+
+struct StatView: View {
+    var title: String
+    var stat: String
+    var body: some View {
         VStack(alignment: .leading){
             Text(title)
                 .font(.caption)
@@ -204,4 +171,5 @@ struct RunSessionRow: View {
         }
     }
 }
+
 

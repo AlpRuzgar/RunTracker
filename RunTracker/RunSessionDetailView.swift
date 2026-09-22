@@ -16,18 +16,44 @@ struct RunSessionDetailView: View {
                 Map {
                     RunRouteOverlay(session)
                 }
-                Text("Mesafe: \(session.distanceMeasurement.formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(2)))))")
-                Text("Süre: \(session.formatted(seconds: session.duration))")
-                // Kaydedilmiş yol varsa aynı yol yeniden koşulabilir.
-                if let path = session.traveledPath {
-                    HStack {
-                        Button("", systemImage: path.isFavorite ? "star.fill" : "star") { path.isFavorite.toggle() ; print("is path favorite: \(path.isFavorite)")}
-                        NavigationLink(destination: NavigationView(route: path)) {
-                            Label("Run this path again", systemImage: "arrow.trianglehead.counterclockwise")
-                        }
-                    }
+                .overlay(alignment: .bottom) {
+                    detailOverlay()
+                        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+                        .padding()
                 }
             }
         }
+    }
+    
+    @ViewBuilder
+    func detailOverlay() -> some View {
+        VStack {
+            HStack {
+                Spacer()
+                StatView(title: "Distance", stat: session.distanceMeasurement.formatted(.measurement(width: .abbreviated)))
+                Divider()
+                StatView(title: "Time", stat: session.duration.mmss)
+                Divider()
+                StatView(title: "Pace", stat: session.pace!.mmss)
+                Spacer()
+                if let path = session.traveledPath {
+                        Button("", systemImage: path.isFavorite ? "star.fill" : "star") { path.isFavorite.toggle() ; print("is path favorite: \(path.isFavorite)")}
+                            .foregroundStyle(.yellow)
+                }
+                Spacer()
+            }
+            .frame(height: 75)
+            
+            if let path = session.traveledPath {
+                NavigationLink(destination: NavigationView(route: path)) {
+                    Label("Run this path again", systemImage: "arrow.trianglehead.counterclockwise")
+                }
+                .padding()
+                .foregroundStyle(.white)
+                .clipShape(Capsule())
+                .background(.emerald)
+            }
+        }
+        .padding()
     }
 }
