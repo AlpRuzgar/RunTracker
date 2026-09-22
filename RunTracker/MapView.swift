@@ -100,7 +100,7 @@ struct MapView: View {
         } label: {
             Image(systemName: "star.fill")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.brightOrange)
+                .foregroundStyle(.emerald)
                 .padding(11)
         }
         .glassEffect(.regular, in: .circle)
@@ -218,7 +218,7 @@ struct MapView: View {
         HStack(spacing: 10) {
             Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.brightOrange)
+                .foregroundStyle(.lightBlue)
 
             Text("Distance")
                 .font(.system(size: 15, weight: .medium, design: .rounded))

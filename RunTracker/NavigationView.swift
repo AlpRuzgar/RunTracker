@@ -150,7 +150,7 @@ struct NavigationView: View {
             case .rerouting:
                 Label("Rerouting…", systemImage: "arrow.triangle.2.circlepath")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.brightOrange)
+                    .foregroundStyle(.lightBlue)
             case .finished:
                 Label("Run complete", systemImage: "flag.checkered")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
@@ -209,7 +209,7 @@ struct NavigationView: View {
                 } label: {
                     Image(systemName: camera.isFollowing ? "location.fill" : "location.slash")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(camera.isFollowing ? .brightOrange : .secondary)
+                        .foregroundStyle(camera.isFollowing ? .lightBlue : .secondary)
                         .frame(width: 38, height: 38)
                 }
                 .glassEffect(.regular, in: .circle)

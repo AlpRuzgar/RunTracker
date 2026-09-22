@@ -26,6 +26,8 @@ struct ProfileView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: Metrics.stack) {
+                    ScreenHeader(title: "Profile")
+                        .padding(.bottom, 2)
                     profileBar
                     weeklyGoal
                     lifetimeStats
@@ -35,8 +37,6 @@ struct ProfileView: View {
                 .padding(.bottom, 28)
             }
             .screenBackground()
-            .navigationTitle("Profile")
-            .navigationBarTitleDisplayMode(.inline)
         }
     }
 
@@ -66,9 +66,9 @@ struct ProfileView: View {
             } label: {
                 Image(systemName: "slider.horizontal.3")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.brightOrange)
+                    .foregroundStyle(.lightBlue)
                     .frame(width: 40, height: 40)
-                    .background(Color.brightOrange.opacity(0.12), in: .circle)
+                    .background(Color.lightBlue.opacity(0.12), in: .circle)
             }
             .accessibilityLabel("Edit profile")
         }
@@ -83,7 +83,7 @@ struct ProfileView: View {
         let fraction = target > 0 ? done / target : 0
 
         return VStack(alignment: .leading, spacing: 12) {
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 SectionLabel(text: "Weekly goal")
                 Text(fraction.formatted(.percent.precision(.fractionLength(0))))
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
@@ -143,7 +143,6 @@ struct ProfileView: View {
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                 }
             }
-            .padding(.horizontal)
 
             if currentWeekSessions.isEmpty {
                 EmptyStateView(

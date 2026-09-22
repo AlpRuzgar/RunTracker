@@ -113,7 +113,7 @@ struct FreeRunView: View {
                         .monospacedDigit()
                     Text(locationManager.isPaused ? "paused" : "elapsed")
                         .font(.caption)
-                        .foregroundStyle(locationManager.isPaused ? .brightOrange : .secondary)
+                        .foregroundStyle(locationManager.isPaused ? .lightBlue : .secondary)
                 }
 
                 Spacer(minLength: 0)
@@ -124,7 +124,7 @@ struct FreeRunView: View {
                 } label: {
                     Image(systemName: camera.isFollowing ? "location.fill" : "location.slash")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(camera.isFollowing ? .brightOrange : .secondary)
+                        .foregroundStyle(camera.isFollowing ? .lightBlue : .secondary)
                         .frame(width: 38, height: 38)
                 }
                 .glassEffect(.regular, in: .circle)

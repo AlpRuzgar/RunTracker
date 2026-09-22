@@ -13,22 +13,36 @@ import SwiftUI
 // biçimleri. Görünümler bunları kullanır, kendi başlarına renk ve gölge
 // uydurmaz — aksi hâlde aynı kart her ekranda birazcık farklı çıkar.
 //
-// Palet: SICAK ama ölçülü. Zemin krem (koyu modda sıcak kömür), üstünde beyaz
-// kartlar; renk yalnızca vurguda kullanılır. Üç vurgu rengi ve rolleri:
+// Palet: SERİN ve nötr. Zemin gerçek beyaz (koyu modda gerçek siyah), kartlar
+// bunun üstünde hafifçe ayrışan bir gri; renk yalnızca vurguda kullanılır. İki
+// vurgu rengi ve rolleri:
 //
-// - `brightOrange`: BİRİNCİL. Eylem ve odak — ana düğmeler, seçili sekme,
-//   ilerleme vurgusu. Paletin sıcaklığını taşıyan renk budur.
-// - `emerald`: İLERLEME ve BAŞARI — haftalık hedef, tamamlanan koşu, rota çizgisi.
-// - `lightBlue`: ÜÇÜNCÜL, ölçülü — hava durumu gibi "serin" bağlamlar.
+// - `emerald`: BİRİNCİL. Eylem, odak, seçim ve başarı — ana düğmeler, seçili
+//   sekme, AccentColor, favori/tamamlanan durumlar, rota çizgisi.
+// - `lightBlue`: İKİNCİL. Geçici/anlık durumlar ve ayırt edici ikincil bilgi —
+//   yeniden yönlendirme, takip/duraklat anahtarları, serbest koşu (rotaya
+//   karşı), hava durumu kartının "gündüz" ucu.
+//
+// Birincil düğme ve ilerleme çubukları artık düz dolgu değil, emerald →
+// lightBlue GRADIENT: `Color.brandGradient` (bkz. altta).
 
 extension Color {
     /// Vurgu renklerinin ÜSTÜNE gelen yazı ve simge rengi.
     ///
-    /// Hem `brightOrange` (#FB923C) hem `emerald` (#10B981) açık tonlardır:
+    /// Hem `emerald` (#10B981) hem `lightBlue` (#38BDF8) açık tonlardır:
     /// beyaz yazıyla kontrastları 3:1'in altında kalır, yani küçük metin
     /// okunmaz. Koyu yazı ikisinde de 7:1'in üstüne çıkar. Dolgulu düğmelerin
     /// yazısı bu yüzden koyudur — bir stil tercihi değil, okunabilirlik.
     static let onAccent = Color(red: 0.10, green: 0.09, blue: 0.08)
+
+    /// Uygulamanın imza gradyanı: emerald → lightBlue. Birincil düğmeler ve
+    /// ilerleme çubukları bunu kullanır; markayı düz bir vurgu rengi yerine
+    /// bir geçişle taşır.
+    static let brandGradient = LinearGradient(
+        colors: [.emerald, .lightBlue],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
 }
 
 // MARK: - Tipografi
@@ -93,17 +107,29 @@ extension View {
         modifier(CardSurface(padding: padding, radius: radius))
     }
 
-    /// Ekranın krem zemini.
+    /// Ekranın beyaz/siyah zemini, tepede imza renklerinden bir gradyan yaldızla.
     ///
-    /// Gezinme çubuğu da aynı krem rengi alır ve GÖRÜNÜR tutulur: yoksa kaydırma
-    /// sırasında kartlar durum çubuğunun altına girip saatin üstünden geçiyor,
-    /// ekranın tepesi kirli görünüyordu. Aynı renk olduğu için çubuk ayrı bir
-    /// katman gibi durmaz, yalnızca içeriği keser.
+    /// Gezinme çubuğu da aynı düz zemin rengini alır ve GÖRÜNÜR tutulur: yoksa
+    /// kaydırma sırasında kartlar durum çubuğunun altına girip saatin üstünden
+    /// geçiyor, ekranın tepesi kirli görünüyordu. Düz `Color.canvas` katmanı bu
+    /// yüzden TEK BAŞINA `ignoresSafeArea()` alır — çubuğun rengiyle birebir
+    /// eşleşsin, aralarında çizgi kalmasın. Gradyan katmanı ise güvenli alanı
+    /// göz ardı ETMEZ: çubuğun altına sızsaydı, düz renkli çubukla renkli
+    /// gradyan arasında sert bir sınır (koyu modda siyah bir şerit) oluşuyordu.
     func screenBackground() -> some View {
-        background(Color.canvas)
-            .scrollContentBackground(.hidden)
-            .toolbarBackground(Color.canvas, for: .navigationBar)
-            .toolbarBackgroundVisibility(.visible, for: .navigationBar)
+        background(alignment: .top) {
+            ZStack(alignment: .top) {
+                Color.canvas.ignoresSafeArea()
+                LinearGradient(
+                    colors: [Color.emerald, Color.lightBlue, .clear],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .toolbarBackgroundVisibility(.visible, for: .navigationBar)
     }
 }
 
@@ -136,6 +162,7 @@ struct ScreenHeader: View {
             }
             Text(title)
                 .font(.screenTitle)
+                .foregroundStyle(.white)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -185,7 +212,7 @@ struct ProgressBar: View {
                 Capsule(style: .continuous)
                     .fill(tint.opacity(0.16))
                 Capsule(style: .continuous)
-                    .fill(tint)
+                    .fill(LinearGradient(colors: [tint, .lightBlue], startPoint: .leading, endPoint: .trailing))
                     .frame(width: proxy.size.width * min(max(value, 0), 1))
             }
         }
@@ -196,9 +223,9 @@ struct ProgressBar: View {
 
 // MARK: - Düğmeler
 
-/// Ana eylem: turuncu dolgu, koyu yazı (bkz. `Color.onAccent`).
+/// Ana eylem: emerald → lightBlue gradyan dolgu, koyu yazı (bkz. `Color.onAccent`).
 struct PrimaryButtonStyle: ButtonStyle {
-    var tint: Color = .brightOrange
+    var tint: Color = .emerald
 
     @Environment(\.isEnabled) private var isEnabled
 
@@ -208,10 +235,14 @@ struct PrimaryButtonStyle: ButtonStyle {
             .foregroundStyle(isEnabled ? Color.onAccent : Color.secondary)
             .frame(maxWidth: .infinity)
             .frame(height: 50)
-            .background(
-                isEnabled ? tint : Color.hairline,
-                in: .rect(cornerRadius: Metrics.smallRadius, style: .continuous)
-            )
+            .background {
+                if isEnabled {
+                    LinearGradient(colors: [tint, .lightBlue], startPoint: .leading, endPoint: .trailing)
+                } else {
+                    Color.hairline
+                }
+            }
+            .clipShape(.rect(cornerRadius: Metrics.smallRadius, style: .continuous))
             .opacity(configuration.isPressed ? 0.82 : 1)
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
             .animation(.snappy(duration: 0.18), value: configuration.isPressed)
@@ -251,7 +282,7 @@ struct EmptyStateView: View {
         VStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.system(size: 26, weight: .regular))
-                .foregroundStyle(.brightOrange)
+                .foregroundStyle(.emerald)
             Text(title)
                 .font(.cardTitle)
             if let message {

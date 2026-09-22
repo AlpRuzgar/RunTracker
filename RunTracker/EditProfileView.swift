@@ -34,7 +34,7 @@ struct EditProfileView: View {
                                     .clipShape(Circle())
                                     .overlay {
                                         Circle()
-                                            .strokeBorder(avatar == user.avatar ? Color.brightOrange : Color.hairline, lineWidth: 3)
+                                            .strokeBorder(avatar == user.avatar ? Color.emerald : Color.hairline, lineWidth: 3)
                                     }
                                 Text(avatar.name)
                                     .font(.system(size: 12, weight: .medium, design: .rounded))

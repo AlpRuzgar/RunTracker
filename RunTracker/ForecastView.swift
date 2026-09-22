@@ -30,9 +30,8 @@ extension CLLocation {
 
 /// Hava kartı: uygulamanın tek renkli yüzeyi.
 ///
-/// `lightBlue` burada yaşar — paletin "serin" rengi, serin olması anlamlı olan
-/// tek bağlamda. Gündüz gökyüzü maviden güneşin turuncusuna geçer, böylece kart
-/// sıcak paletin dışına düşmez; gece `midnight`e iner.
+/// `lightBlue` burada da yaşar — ikincil rengin en doğal bağlamı gökyüzü.
+/// Gündüz mavi berrak beyaza açılır (gündüz gökyüzü hissi); gece `midnight`e iner.
 ///
 /// Yazı rengi zemine göre seçilir: gündüz açık mavinin üstünde beyaz yazı
 /// 2:1'lik kontrastla okunmaz, koyu yazı 7:1'e çıkar (bkz. `Color.onAccent`).
@@ -46,7 +45,7 @@ struct ForecastView: View {
 
     private var background: LinearGradient {
         LinearGradient(
-            colors: isDay ? [.lightBlue, .brightOrange.opacity(0.55)] : [.midnight, .steelGray],
+            colors: isDay ? [.lightBlue, .white] : [.midnight, .steelGray],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )

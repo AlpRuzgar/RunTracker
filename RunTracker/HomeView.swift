@@ -51,7 +51,6 @@ struct HomeView: View {
             .screenBackground()
             // Başlık içerikte; gezinme çubuğu boş kalsın ki ekran krem zeminle
             // tek parça görünsün.
-            .navigationBarTitleDisplayMode(.inline)
         }
         .task(id: locationManager.userLocation == nil) {
             timeOfDayMessage = Self.greeting()
