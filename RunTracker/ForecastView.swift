@@ -30,7 +30,7 @@ extension CLLocation {
 
 /// Hava kartı: uygulamanın tek renkli yüzeyi.
 ///
-/// `lightBlue` burada da yaşar — ikincil rengin en doğal bağlamı gökyüzü.
+/// `primaryBlue` burada da yaşar — ikincil rengin en doğal bağlamı gökyüzü.
 /// Gündüz mavi berrak beyaza açılır (gündüz gökyüzü hissi); gece `midnight`e iner.
 ///
 /// Yazı rengi zemine göre seçilir: gündüz açık mavinin üstünde beyaz yazı
@@ -40,12 +40,13 @@ struct ForecastView: View {
     @State private var currentWeather: CurrentWeather?
     @State private var hourlyForecast: Forecast<HourWeather>?
     @State private var district = ""
+    @State private var bounceTrigger = 0
 
     private var isDay: Bool { currentWeather?.isDaylight ?? true }
 
     private var background: LinearGradient {
         LinearGradient(
-            colors: isDay ? [.lightBlue, .white] : [.midnight, .steelGray],
+            colors: isDay ? [.lb , .white] : [.midnight, .steelGray],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
@@ -116,6 +117,7 @@ struct ForecastView: View {
                     .symbolRenderingMode(.multicolor)
                     .font(.system(size: 46))
                     .shadow(color: .black.opacity(0.15), radius: 8, y: 3)
+                    .weatherAnimation(weather.symbolAnimation)
             }
 
             HStack(spacing: 8) {
@@ -189,4 +191,66 @@ struct ForecastView: View {
     ForecastView(location: CLLocation(latitude: 41, longitude: 28))
         .padding()
         .background(Color.canvas)
+}
+
+enum WeatherSymbolAnimation {
+    case rotate, variableColor, pulse, breathe, wiggle, bounce, none
+}
+
+extension CurrentWeather {
+    var symbolAnimation: WeatherSymbolAnimation {
+        switch condition {
+        case .clear, .mostlyClear, .hot:
+            // Gece sembol aya dönüşür; dönen ay tuhaf durur.
+            return isDaylight ? .rotate : .breathe
+
+        case .drizzle, .rain, .heavyRain, .sunShowers:
+            return .variableColor
+
+        case .thunderstorms, .isolatedThunderstorms,
+             .scatteredThunderstorms, .strongStorms:
+            return .pulse
+
+        case .windy, .breezy:
+            return .wiggle
+
+        case .cloudy, .mostlyCloudy, .partlyCloudy, .foggy, .haze:
+            return .breathe
+
+        default:
+            return .bounce
+        }
+    }
+}
+
+// MARK: - "Nasıl" (view tarafı)
+
+struct WeatherAnimationModifier: ViewModifier {
+    let animation: WeatherSymbolAnimation
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        switch animation {
+        case .rotate:
+            content.symbolEffect(.rotate, options: .repeat(.periodic(delay: 5)))
+        case .variableColor:
+            content.symbolEffect(.variableColor.iterative.reversing, options: .repeat(.periodic(delay: 5)))
+        case .pulse:
+            content.symbolEffect(.pulse, options: .repeat(.periodic(delay: 5)))
+        case .breathe:
+            content.symbolEffect(.breathe, options: .repeat(.periodic(delay: 5)))
+        case .wiggle:
+            content.symbolEffect(.wiggle, options: .repeat(.periodic(delay: 5)))
+        case .bounce:
+            content.symbolEffect(.bounce, options: .repeat(.periodic(delay: 5)))
+        case .none:
+            content
+        }
+    }
+}
+
+extension View {
+    func weatherAnimation(_ animation: WeatherSymbolAnimation) -> some View {
+        modifier(WeatherAnimationModifier(animation: animation))
+    }
 }

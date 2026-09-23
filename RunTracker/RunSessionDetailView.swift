@@ -18,7 +18,7 @@ struct RunSessionDetailView: View {
     @State private var district: String?
 
     private var isRoute: Bool { session.plannedDistance != nil }
-    private var tint: Color { isRoute ? .emerald : .brightOrange }
+    private var tint: Color { isRoute ? .secondaryGreen : .brightOrange }
 
     var body: some View {
         ScrollView {
@@ -130,6 +130,7 @@ struct RunSessionDetailView: View {
             isNavigating = true
         } label: {
             Label("Run this path again", systemImage: "arrow.trianglehead.counterclockwise")
+                .foregroundStyle(.white)
         }
         .buttonStyle(PrimaryButtonStyle())
         .fullScreenCover(isPresented: $isNavigating) {

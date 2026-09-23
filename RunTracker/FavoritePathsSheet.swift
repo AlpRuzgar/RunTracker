@@ -67,7 +67,7 @@ struct FavRow: View {
                 Spacer(minLength: 0)
 
                 Map(position: $cameraPosition, interactionModes: []) {
-                    RouteOverlay(polylines: displayedPath.polylines, tint: .emerald, density: .compact)
+                    RouteOverlay(polylines: displayedPath.polylines, tint: .secondaryGreen, density: .compact)
                 }
                 .mapControlVisibility(.hidden)
                 .allowsHitTesting(false)
@@ -95,7 +95,7 @@ struct FavRow: View {
             } label: {
                 Label("Start navigation", systemImage: "location.north.fill")
             }
-            .buttonStyle(PrimaryButtonStyle(tint: .emerald))
+            .buttonStyle(PrimaryButtonStyle(tint: .secondaryGreen))
         }
         .card()
         .fullScreenCover(isPresented: $isNavigating) {

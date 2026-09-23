@@ -29,7 +29,7 @@ struct WeatherView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .glassEffect(.regular, in: .capsule)
+                .glassVisual(.regular, in: .capsule)
             } else {
                 ProgressView()
             }

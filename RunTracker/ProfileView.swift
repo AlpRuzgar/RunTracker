@@ -66,9 +66,9 @@ struct ProfileView: View {
             } label: {
                 Image(systemName: "slider.horizontal.3")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.lightBlue)
+                    .foregroundStyle(.secondaryGreen)
                     .frame(width: 40, height: 40)
-                    .background(Color.lightBlue.opacity(0.12), in: .circle)
+                    .background(Color.secondaryGreen.opacity(0.12), in: .circle)
             }
             .accessibilityLabel("Edit profile")
         }
@@ -87,7 +87,7 @@ struct ProfileView: View {
                 SectionLabel(text: "Weekly goal")
                 Text(fraction.formatted(.percent.precision(.fractionLength(0))))
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(fraction >= 1 ? .emerald : .secondary)
+                    .foregroundStyle(fraction >= 1 ? .secondaryGreen : .secondary)
             }
 
             ProgressBar(value: fraction)

@@ -17,29 +17,29 @@ import SwiftUI
 // bunun üstünde hafifçe ayrışan bir gri; renk yalnızca vurguda kullanılır. İki
 // vurgu rengi ve rolleri:
 //
-// - `emerald`: BİRİNCİL. Eylem, odak, seçim ve başarı — ana düğmeler, seçili
+// - `secondaryGreen`: BİRİNCİL. Eylem, odak, seçim ve başarı — ana düğmeler, seçili
 //   sekme, AccentColor, favori/tamamlanan durumlar, rota çizgisi.
-// - `lightBlue`: İKİNCİL. Geçici/anlık durumlar ve ayırt edici ikincil bilgi —
+// - `primaryBlue`: İKİNCİL. Geçici/anlık durumlar ve ayırt edici ikincil bilgi —
 //   yeniden yönlendirme, takip/duraklat anahtarları, serbest koşu (rotaya
 //   karşı), hava durumu kartının "gündüz" ucu.
 //
-// Birincil düğme ve ilerleme çubukları artık düz dolgu değil, emerald →
-// lightBlue GRADIENT: `Color.brandGradient` (bkz. altta).
+// Birincil düğme ve ilerleme çubukları artık düz dolgu değil, secondaryGreen →
+// primaryBlue GRADIENT: `Color.brandGradient` (bkz. altta).
 
 extension Color {
     /// Vurgu renklerinin ÜSTÜNE gelen yazı ve simge rengi.
     ///
-    /// Hem `emerald` (#10B981) hem `lightBlue` (#38BDF8) açık tonlardır:
+    /// Hem `secondaryGreen` (#10B981) hem `primaryBlue` (#38BDF8) açık tonlardır:
     /// beyaz yazıyla kontrastları 3:1'in altında kalır, yani küçük metin
     /// okunmaz. Koyu yazı ikisinde de 7:1'in üstüne çıkar. Dolgulu düğmelerin
     /// yazısı bu yüzden koyudur — bir stil tercihi değil, okunabilirlik.
     static let onAccent = Color(red: 0.10, green: 0.09, blue: 0.08)
 
-    /// Uygulamanın imza gradyanı: emerald → lightBlue. Birincil düğmeler ve
+    /// Uygulamanın imza gradyanı: secondaryGreen → primaryBlue. Birincil düğmeler ve
     /// ilerleme çubukları bunu kullanır; markayı düz bir vurgu rengi yerine
     /// bir geçişle taşır.
     static let brandGradient = LinearGradient(
-        colors: [.emerald, .lightBlue],
+        colors: [.secondaryGreen, .primaryBlue],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
@@ -121,7 +121,7 @@ extension View {
             ZStack(alignment: .top) {
                 Color.canvas.ignoresSafeArea()
                 LinearGradient(
-                    colors: [Color.emerald, Color.lightBlue, .clear],
+                    colors: [Color.secondaryGreen, Color.primaryBlue, .clear],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -129,7 +129,6 @@ extension View {
             }
         }
         .scrollContentBackground(.hidden)
-        .toolbarBackgroundVisibility(.visible, for: .navigationBar)
     }
 }
 
@@ -157,8 +156,8 @@ struct ScreenHeader: View {
         VStack(alignment: .leading, spacing: 2) {
             if let subtitle {
                 Text(subtitle)
-                    .font(.system(size: 15, weight: .medium, design: .rounded))
-                    .foregroundStyle(.secondary)
+                    .font(.screenTitle)
+                    .foregroundStyle(.white)
             }
             Text(title)
                 .font(.screenTitle)
@@ -203,7 +202,7 @@ struct StatView: View {
 struct ProgressBar: View {
     /// 0...1.
     var value: Double
-    var tint: Color = .emerald
+    var tint: Color = .secondaryGreen
     var height: CGFloat = 10
 
     var body: some View {
@@ -212,7 +211,7 @@ struct ProgressBar: View {
                 Capsule(style: .continuous)
                     .fill(tint.opacity(0.16))
                 Capsule(style: .continuous)
-                    .fill(LinearGradient(colors: [tint, .lightBlue], startPoint: .leading, endPoint: .trailing))
+                    .fill(LinearGradient(colors: [tint, .primaryBlue], startPoint: .leading, endPoint: .trailing))
                     .frame(width: proxy.size.width * min(max(value, 0), 1))
             }
         }
@@ -223,9 +222,9 @@ struct ProgressBar: View {
 
 // MARK: - Düğmeler
 
-/// Ana eylem: emerald → lightBlue gradyan dolgu, koyu yazı (bkz. `Color.onAccent`).
+/// Ana eylem: secondaryGreen → primaryBlue gradyan dolgu, koyu yazı (bkz. `Color.onAccent`).
 struct PrimaryButtonStyle: ButtonStyle {
-    var tint: Color = .emerald
+    var tint: Color = .secondaryGreen
 
     @Environment(\.isEnabled) private var isEnabled
 
@@ -237,7 +236,7 @@ struct PrimaryButtonStyle: ButtonStyle {
             .frame(height: 50)
             .background {
                 if isEnabled {
-                    LinearGradient(colors: [tint, .lightBlue], startPoint: .leading, endPoint: .trailing)
+                    LinearGradient(colors: [tint, .primaryBlue], startPoint: .leading, endPoint: .trailing)
                 } else {
                     Color.hairline
                 }
@@ -282,7 +281,7 @@ struct EmptyStateView: View {
         VStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.system(size: 26, weight: .regular))
-                .foregroundStyle(.emerald)
+                .foregroundStyle(.secondaryGreen)
             Text(title)
                 .font(.cardTitle)
             if let message {
@@ -307,6 +306,36 @@ struct EmptyStateView: View {
 extension View {
     func mapControlSurface(radius: CGFloat = Metrics.radius) -> some View {
         padding(14)
-            .glassEffect(.regular, in: .rect(cornerRadius: radius, style: .continuous))
+            .glassVisual(.regular, in: .rect(cornerRadius: radius, style: .continuous))
+    }
+}
+
+enum CamStili {
+    case regular
+    case clear
+
+    var glass: Glass {
+        switch self {
+        case .regular: .regular
+        case .clear:   .clear
+        }
+    }
+
+    func glass(tint: Color?, interactive: Bool) -> Glass {
+        var glass = glass
+        if let tint { glass = glass.tint(tint) }
+        if interactive { glass = glass.interactive() }
+        return glass
+    }
+}
+
+extension View {
+    func glassVisual(
+        _ stil: CamStili = .regular,
+        tint: Color? = nil,
+        interactive: Bool = false,
+        in shape: some Shape = Capsule()
+    ) -> some View {
+        glassEffect(stil.glass(tint: tint, interactive: interactive), in: shape)
     }
 }

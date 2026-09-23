@@ -25,7 +25,7 @@ struct MainView: View {
                 .tag(Tab.profile)
         }
         // Sekme çubuğu uygulamanın birincil rengini taşır (bkz. `Theme.swift`).
-        .tint(.emerald)
+        .tint(.secondaryGreen)
     }
 }
 

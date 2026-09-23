@@ -78,7 +78,7 @@ struct HomeView: View {
                 SectionLabel(text: "This week")
                 Text(fraction.formatted(.percent.precision(.fractionLength(0))))
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(fraction >= 1 ? .emerald : .secondary)
+                    .foregroundStyle(fraction >= 1 ? .secondaryGreen : .secondary)
             }
 
             HStack(alignment: .firstTextBaseline, spacing: 6) {

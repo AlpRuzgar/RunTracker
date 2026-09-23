@@ -51,7 +51,7 @@ struct FreeRunView: View {
                 backButton.hidden()
             }
             .padding(14)
-            .glassEffect(.regular, in: .rect(cornerRadius: 26, style: .continuous))
+            .glassVisual(.regular, in: .rect(cornerRadius: 26, style: .continuous))
             .padding(.horizontal, Metrics.gutter)
             .padding(.top, 6)
         }
@@ -85,7 +85,7 @@ struct FreeRunView: View {
                 .foregroundStyle(.primary)
                 .frame(width: 38, height: 38)
         }
-        .glassEffect(.regular, in: .circle)
+        .glassVisual(.regular, in: .circle)
         .accessibilityLabel("Back")
     }
 
@@ -113,7 +113,7 @@ struct FreeRunView: View {
                         .monospacedDigit()
                     Text(locationManager.isPaused ? "paused" : "elapsed")
                         .font(.caption)
-                        .foregroundStyle(locationManager.isPaused ? .lightBlue : .secondary)
+                        .foregroundStyle(locationManager.isPaused ? .primaryBlue : .secondary)
                 }
 
                 Spacer(minLength: 0)
@@ -124,10 +124,10 @@ struct FreeRunView: View {
                 } label: {
                     Image(systemName: camera.isFollowing ? "location.fill" : "location.slash")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(camera.isFollowing ? .lightBlue : .secondary)
+                        .foregroundStyle(camera.isFollowing ? .primaryBlue : .secondary)
                         .frame(width: 38, height: 38)
                 }
-                .glassEffect(.regular, in: .circle)
+                .glassVisual(.regular, in: .circle)
                 .accessibilityLabel(camera.isFollowing ? "Stop following" : "Follow me")
             }
 
@@ -139,7 +139,7 @@ struct FreeRunView: View {
             .buttonStyle(PrimaryButtonStyle())
         }
         .padding(16)
-        .glassEffect(.regular, in: .rect(cornerRadius: 26, style: .continuous))
+        .glassVisual(.regular, in: .rect(cornerRadius: 26, style: .continuous))
         .padding(.horizontal, Metrics.gutter)
         .padding(.bottom, 6)
     }

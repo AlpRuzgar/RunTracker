@@ -41,6 +41,6 @@ private struct RootView: View {
         }
         // Uygulamanın birincil rengi; onboarding dahil her yerde geçerli
         // (bkz. `Theme.swift`).
-        .tint(.emerald)
+        .tint(.secondaryGreen)
     }
 }

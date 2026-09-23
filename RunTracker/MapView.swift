@@ -35,7 +35,7 @@ struct MapView: View {
     var body: some View {
         Map(position: $cameraPosition) {
             UserAnnotation()
-            RouteOverlay(polylines: previewPolylines, tint: .emerald,
+            RouteOverlay(polylines: previewPolylines, tint: .secondaryGreen,
                          mapHeading: mapHeading, arrows: arrows)
         }
         .onMapCameraChange(frequency: .continuous) { context in
@@ -100,10 +100,10 @@ struct MapView: View {
         } label: {
             Image(systemName: "star.fill")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.emerald)
+                .foregroundStyle(.secondaryGreen)
                 .padding(11)
         }
-        .glassEffect(.regular, in: .circle)
+        .glassVisual(.regular, in: .circle)
         .padding(.leading, Metrics.gutter)
         .padding(.top, 8)
         .accessibilityLabel("Favorite paths")
@@ -148,6 +148,7 @@ struct MapView: View {
                             ProgressView().tint(Color.onAccent)
                         } else {
                             Label(generateButtonText, systemImage: generateButtonSymbol)
+                                .foregroundStyle(.white)
                         }
                     }
                     .buttonStyle(PrimaryButtonStyle())
@@ -160,14 +161,15 @@ struct MapView: View {
                         navigatingRoute = route
                     } label: {
                         Label("Start navigation", systemImage: "location.north.fill")
+                            .foregroundStyle(.white)
                     }
-                    // Koşuyu başlatan eylem emerald: rotanın haritadaki rengi
+                    // Koşuyu başlatan eylem secondaryGreen: rotanın haritadaki rengi
                     // de o, ikisi aynı şeyi anlatıyor.
-                    .buttonStyle(PrimaryButtonStyle(tint: .emerald))
+                    .buttonStyle(PrimaryButtonStyle(tint: .secondaryGreen))
                 }
             }
             .padding(16)
-            .glassEffect(.regular, in: .rect(cornerRadius: 26, style: .continuous))
+            .glassVisual(.regular, in: .rect(cornerRadius: 26, style: .continuous))
             .padding(.horizontal, Metrics.gutter)
             .padding(.bottom, 6)
         }
@@ -181,7 +183,7 @@ struct MapView: View {
         HStack(spacing: 8) {
             Image(systemName: route.kind == .loop ? "arrow.trianglehead.clockwise" : "arrow.left.arrow.right")
                 .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.emerald)
+                .foregroundStyle(.secondaryGreen)
             Text(route.kind == .loop ? "Loop" : "Out & back")
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
             Spacer()
@@ -218,7 +220,7 @@ struct MapView: View {
         HStack(spacing: 10) {
             Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.lightBlue)
+                .foregroundStyle(.secondaryGreen)
 
             Text("Distance")
                 .font(.system(size: 15, weight: .medium, design: .rounded))

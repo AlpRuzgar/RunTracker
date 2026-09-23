@@ -139,11 +139,11 @@ struct RunSessionRow: View {
                         Text(isRoute ? "Route" : "Free run")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                     }
-                    .foregroundStyle(isRoute ? Color.emerald : Color.brightOrange)
+                    .foregroundStyle(isRoute ? Color.secondaryGreen : Color.brightOrange)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(
-                        (isRoute ? Color.emerald : Color.brightOrange).opacity(0.12),
+                        (isRoute ? Color.secondaryGreen : Color.brightOrange).opacity(0.12),
                         in: .capsule
                     )
 
@@ -164,7 +164,7 @@ struct RunSessionRow: View {
                 Map(position: $cameraPosition, interactionModes: []) {
                     RouteOverlay(
                         polylines: polylines,
-                        tint: isRoute ? .emerald : .brightOrange,
+                        tint: isRoute ? .secondaryGreen : .brightOrange,
                         density: .compact
                     )
                 }
@@ -215,7 +215,7 @@ struct RunSessionRow: View {
                         .font(.statValue.monospacedDigit())
                     Image(systemName: isFaster ? "arrow.up.right" : "arrow.down.right")
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(isFaster ? Color.emerald : Color.secondary)
+                        .foregroundStyle(isFaster ? Color.secondaryGreen : Color.secondary)
                 }
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)

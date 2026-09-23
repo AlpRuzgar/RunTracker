@@ -133,10 +133,10 @@ struct RouteOverlay: MapContent {
     }
 
     let polylines: [MKPolyline]
-    /// Rota rengi emerald: uygulamanın "ilerleme" rengi (bkz. `Theme.swift`).
+    /// Rota rengi secondaryGreen: uygulamanın "ilerleme" rengi (bkz. `Theme.swift`).
     /// Önizlemede, navigasyonda ve küçük resimlerde aynı renk kullanılır ki
     /// kullanıcı her yerde aynı şeye baktığını bilsin.
-    var tint: Color = .emerald
+    var tint: Color = .secondaryGreen
     /// Haritanın kuzeye göre dönüklüğü; `onMapCameraChange`'den gelir.
     /// Döndürülemeyen küçük resim haritalarında 0 kalır.
     var mapHeading: Double = 0
@@ -201,7 +201,7 @@ struct RouteDirectionArrows: MapContent {
     let arrows: [RouteArrow]
     /// Haritanın kuzeye göre dönüklüğü (derece) — `onMapCameraChange`'den gelir.
     var mapHeading: Double = 0
-    var tint: Color = .emerald
+    var tint: Color = .secondaryGreen
 
     var body: some MapContent {
         ForEach(arrows) { arrow in

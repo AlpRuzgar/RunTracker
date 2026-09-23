@@ -15,7 +15,7 @@ struct WeeklyChartView: View {
     var type: String = "Distance"
     var data: [Double]
     var days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    var tint: Color = .emerald
+    var tint: Color = .secondaryGreen
 
     var body: some View {
         Chart(days.indices, id: \.self) { index in

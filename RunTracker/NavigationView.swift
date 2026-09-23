@@ -102,7 +102,7 @@ struct NavigationView: View {
                 .foregroundStyle(.primary)
                 .frame(width: 38, height: 38)
         }
-        .glassEffect(.regular, in: .circle)
+        .glassVisual(.regular, in: .circle)
         .accessibilityLabel("Back")
     }
 
@@ -123,7 +123,7 @@ struct NavigationView: View {
             backButton.hidden()
         }
         .padding(14)
-        .glassEffect(.regular, in: .rect(cornerRadius: 26, style: .continuous))
+        .glassVisual(.regular, in: .rect(cornerRadius: 26, style: .continuous))
         .padding(.horizontal, Metrics.gutter)
         .padding(.top, 6)
     }
@@ -150,11 +150,11 @@ struct NavigationView: View {
             case .rerouting:
                 Label("Rerouting…", systemImage: "arrow.triangle.2.circlepath")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.lightBlue)
+                    .foregroundStyle(.secondaryGreen)
             case .finished:
                 Label("Run complete", systemImage: "flag.checkered")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.emerald)
+                    .foregroundStyle(.secondaryGreen)
             default:
                 Text(navigation.currentInstruction)
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
@@ -209,10 +209,10 @@ struct NavigationView: View {
                 } label: {
                     Image(systemName: camera.isFollowing ? "location.fill" : "location.slash")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(camera.isFollowing ? .lightBlue : .secondary)
+                        .foregroundStyle(camera.isFollowing ? .secondaryGreen : .secondary)
                         .frame(width: 38, height: 38)
                 }
-                .glassEffect(.regular, in: .circle)
+                .glassVisual(.regular, in: .circle)
                 .accessibilityLabel(camera.isFollowing ? "Stop following" : "Follow me")
             }
 
@@ -222,6 +222,7 @@ struct NavigationView: View {
             if hasStarted {
                 Button { endRun() } label: {
                     Label("End route", systemImage: "stop.fill")
+                        .foregroundStyle(.white)
                 }
                 .buttonStyle(PrimaryButtonStyle())
             } else {
@@ -232,7 +233,7 @@ struct NavigationView: View {
             }
         }
         .padding(16)
-        .glassEffect(.regular, in: .rect(cornerRadius: 26, style: .continuous))
+        .glassVisual(.regular, in: .rect(cornerRadius: 26, style: .continuous))
         .padding(.horizontal, Metrics.gutter)
         .padding(.bottom, 6)
     }
