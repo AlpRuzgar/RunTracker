@@ -36,6 +36,8 @@ struct NavigationView: View {
     /// ne de yol kaydedilir; yoksa rotaya gitmek için yürünen mesafe koşuya
     /// yazılırdı.
     @State private var hasStarted = false
+    /// Kilit ekranı ve Dynamic Island'daki talimat + koşu kartı.
+    @State private var liveActivity = RunLiveActivity()
 
     var body: some View {
         Map(position: $camera.position) {
@@ -73,16 +75,33 @@ struct NavigationView: View {
             // `LocationManager` konumları takip kapalıyken de yayınladığı için
             // yaklaşma yine de izlenebilir.
             navigation.start(path: followedPath)
+            // Arka plan konumu rotaya yürürken de açıktır: kullanıcı telefonu
+            // cebine koyup rotaya yürüyebilir, koşu yine kendiliğinden başlar.
+            locationManager.setRunsInBackground(true)
+            liveActivity.start(kind: .navigation, state: activityState())
+            // Live Activity'deki "End" düğmesi alttaki "End route" ile aynı
+            // işi yapar (bkz. `EndRunIntent`).
+            RunActivityBridge.endRun = { endRun() }
         }
         .onDisappear {
             navigation.stop()
             locationManager.stopTracking()
+            locationManager.setRunsInBackground(false)
+            // Kaydetmeden çıkıldıysa etkinlik hemen kapanır; kaydedildiyse
+            // `endRun` onu zaten son hâliyle kapattı.
+            liveActivity.end()
+            RunActivityBridge.endRun = nil
         }
         .onChange(of: locationManager.userLocation) { _, newLocation in
             guard let newLocation else { return }
             navigation.update(location: newLocation)
             if !hasStarted, navigation.state == .navigating { beginRun() }
             camera.follow(location: newLocation, heading: locationManager.travelDirection)
+            liveActivity.update(activityState())
+        }
+        .onChange(of: navigation.state) { _, _ in
+            // Yeniden rota konumdan bağımsız, ağ isteği bitince değişir.
+            liveActivity.update(activityState())
         }
         .onChange(of: locationManager.userHeading) { _, _ in
             // Kullanıcı dururken dönerse harita yine de onunla dönsün.
@@ -259,6 +278,8 @@ struct NavigationView: View {
             return
         }
 
+        liveActivity.end(finalState: activityState(phase: .ended))
+
         let session = RunSession(
             startedAt: startedAt,
             segments: locationManager.pathSegments,
@@ -274,8 +295,36 @@ struct NavigationView: View {
         session.traveledPath = path
         session.user = users.first
         modelContext.insert(session)
+        // Kilit ekranından bitirilen koşuda uygulama arka plandadır ve otomatik
+        // kaydı beklemeden askıya alınabilir; kayıt hemen yazılır.
+        try? modelContext.save()
         navigation.stop()
         dismiss()
+    }
+
+    /// Live Activity'de gösterilen talimat ve koşu bilgileri. Aşama verilmezse
+    /// navigasyonun durumundan çıkarılır.
+    private func activityState(phase: RunActivityAttributes.Phase? = nil) -> RunLiveActivity.State {
+        let distance = RunSession.distance(of: locationManager.pathSegments)
+        let phase = phase ?? {
+            switch navigation.state {
+            case .idle, .waitingToStart: .waitingToStart
+            case .navigating: .running
+            case .rerouting: .rerouting
+            case .finished: .finished
+            }
+        }()
+        return RunLiveActivity.State(
+            phase: phase,
+            startedAt: hasStarted ? startedAt : nil,
+            finalDuration: phase == .ended ? Date.now.timeIntervalSince(startedAt) : nil,
+            distance: distance,
+            secondsPerKilometer: hasStarted ? RunLiveActivity.pace(distance: distance, since: startedAt) : nil,
+            instruction: navigation.currentInstruction,
+            distanceToManeuver: navigation.distanceToNextManeuver,
+            progress: navigation.progressFraction,
+            distanceToRoute: navigation.distanceToRoute
+        )
     }
 
     /// Mesafeyi sistemin varsayılan birimiyle yazar.

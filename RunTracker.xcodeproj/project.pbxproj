@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		5E1A00012F00000000000002 /* RunTrackerWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5E1A00012F00000000000001 /* RunTrackerWidgetsExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		36A45C79304602700036E4CD /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -21,6 +25,13 @@
 			remoteGlobalIDString = 36A45C6A3046026E0036E4CD;
 			remoteInfo = RunTracker;
 		};
+		5E1A00012F00000000000003 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 36A45C633046026E0036E4CD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5E1A00012F00000000000008;
+			remoteInfo = RunTrackerWidgetsExtension;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -30,6 +41,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
+				5E1A00012F00000000000002 /* RunTrackerWidgetsExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -42,6 +54,7 @@
 		36A45C6B3046026E0036E4CD /* RunTracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RunTracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		36A45C78304602700036E4CD /* RunTrackerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunTrackerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		36A45C82304602700036E4CD /* RunTrackerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunTrackerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E1A00012F00000000000001 /* RunTrackerWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RunTrackerWidgetsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -51,6 +64,13 @@
 				Info.plist,
 			);
 			target = 36A45C6A3046026E0036E4CD /* RunTracker */;
+		};
+		5E1A00012F00000000000007 /* Exceptions for "RunTrackerWidgets" folder in "RunTrackerWidgetsExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 5E1A00012F00000000000008 /* RunTrackerWidgetsExtension */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -71,6 +91,19 @@
 		36A45C85304602700036E4CD /* RunTrackerUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = RunTrackerUITests;
+			sourceTree = "<group>";
+		};
+		5E1A00012F00000000000005 /* RunTrackerWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				5E1A00012F00000000000007 /* Exceptions for "RunTrackerWidgets" folder in "RunTrackerWidgetsExtension" target */,
+			);
+			path = RunTrackerWidgets;
+			sourceTree = "<group>";
+		};
+		5E1A00012F00000000000006 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -97,6 +130,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5E1A00012F0000000000000A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -115,6 +155,8 @@
 				36A45C6D3046026E0036E4CD /* RunTracker */,
 				36A45C7B304602700036E4CD /* RunTrackerTests */,
 				36A45C85304602700036E4CD /* RunTrackerUITests */,
+				5E1A00012F00000000000006 /* Shared */,
+				5E1A00012F00000000000005 /* RunTrackerWidgets */,
 				36318E53306401B300ECC863 /* Frameworks */,
 				36A45C6C3046026E0036E4CD /* Products */,
 			);
@@ -126,6 +168,7 @@
 				36A45C6B3046026E0036E4CD /* RunTracker.app */,
 				36A45C78304602700036E4CD /* RunTrackerTests.xctest */,
 				36A45C82304602700036E4CD /* RunTrackerUITests.xctest */,
+				5E1A00012F00000000000001 /* RunTrackerWidgetsExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -145,9 +188,11 @@
 			buildRules = (
 			);
 			dependencies = (
+				5E1A00012F00000000000004 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				36A45C6D3046026E0036E4CD /* RunTracker */,
+				5E1A00012F00000000000006 /* Shared */,
 			);
 			name = RunTracker;
 			packageProductDependencies = (
@@ -202,6 +247,29 @@
 			productReference = 36A45C82304602700036E4CD /* RunTrackerUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		5E1A00012F00000000000008 /* RunTrackerWidgetsExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5E1A00012F0000000000000C /* Build configuration list for PBXNativeTarget "RunTrackerWidgetsExtension" */;
+			buildPhases = (
+				5E1A00012F00000000000009 /* Sources */,
+				5E1A00012F0000000000000A /* Frameworks */,
+				5E1A00012F0000000000000B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				5E1A00012F00000000000005 /* RunTrackerWidgets */,
+				5E1A00012F00000000000006 /* Shared */,
+			);
+			name = RunTrackerWidgetsExtension;
+			packageProductDependencies = (
+			);
+			productName = RunTrackerWidgetsExtension;
+			productReference = 5E1A00012F00000000000001 /* RunTrackerWidgetsExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -222,6 +290,9 @@
 					36A45C81304602700036E4CD = {
 						CreatedOnToolsVersion = 26.6;
 						TestTargetID = 36A45C6A3046026E0036E4CD;
+					};
+					5E1A00012F00000000000008 = {
+						CreatedOnToolsVersion = 26.6;
 					};
 				};
 			};
@@ -244,6 +315,7 @@
 				36A45C6A3046026E0036E4CD /* RunTracker */,
 				36A45C77304602700036E4CD /* RunTrackerTests */,
 				36A45C81304602700036E4CD /* RunTrackerUITests */,
+				5E1A00012F00000000000008 /* RunTrackerWidgetsExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -264,6 +336,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		36A45C80304602700036E4CD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E1A00012F0000000000000B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -294,6 +373,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5E1A00012F00000000000009 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -306,6 +392,12 @@
 			isa = PBXTargetDependency;
 			target = 36A45C6A3046026E0036E4CD /* RunTracker */;
 			targetProxy = 36A45C83304602700036E4CD /* PBXContainerItemProxy */;
+		};
+		5E1A00012F00000000000004 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilter = ios;
+			target = 5E1A00012F00000000000008 /* RunTrackerWidgetsExtension */;
+			targetProxy = 5E1A00012F00000000000003 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -453,6 +545,7 @@
 				INFOPLIST_FILE = RunTracker/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Konumunuz kullanılacak.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -511,6 +604,7 @@
 				INFOPLIST_FILE = RunTracker/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Konumunuz kullanılacak.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -644,6 +738,71 @@
 			};
 			name = Release;
 		};
+		5E1A00012F0000000000000D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 99ZHKR5DBC;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = RunTrackerWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = RunTracker;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.Helloworld.RunTracker.RunTrackerWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		5E1A00012F0000000000000E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 99ZHKR5DBC;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = RunTrackerWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = RunTracker;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.Helloworld.RunTracker.RunTrackerWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -679,6 +838,15 @@
 			buildConfigurations = (
 				36A45C93304602700036E4CD /* Debug */,
 				36A45C94304602700036E4CD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5E1A00012F0000000000000C /* Build configuration list for PBXNativeTarget "RunTrackerWidgetsExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E1A00012F0000000000000D /* Debug */,
+				5E1A00012F0000000000000E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

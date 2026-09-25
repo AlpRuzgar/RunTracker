@@ -20,6 +20,8 @@ struct FreeRunView: View {
     @State private var locationManager = LocationManager()
     @State private var camera = RunCamera()
     @State private var startedAt = Date.now
+    /// Kilit ekranı ve Dynamic Island'daki koşu kartı.
+    @State private var liveActivity = RunLiveActivity()
 
     /// Şu ana kadar koşulan mesafe (metre).
     private var distance: Double {
@@ -60,13 +62,24 @@ struct FreeRunView: View {
         }
         .onAppear {
             startedAt = .now
+            locationManager.setRunsInBackground(true)
             locationManager.startTracking()
+            liveActivity.start(kind: .freeRun, state: activityState())
+            // Live Activity'deki "End" düğmesi bu ekranın kendi düğmesiyle
+            // aynı işi yapar (bkz. `EndRunIntent`).
+            RunActivityBridge.endRun = { endRun() }
         }
         .onDisappear {
             locationManager.stopTracking()
+            locationManager.setRunsInBackground(false)
+            // Kaydetmeden geri dönüldüyse etkinlik hemen kapanır; kaydedildiyse
+            // `endRun` onu zaten son hâliyle kapattı.
+            liveActivity.end()
+            RunActivityBridge.endRun = nil
         }
         .onChange(of: locationManager.userLocation) { _, newLocation in
             camera.follow(location: newLocation, heading: locationManager.travelDirection)
+            liveActivity.update(activityState())
         }
         .onChange(of: locationManager.userHeading) { _, _ in
             // Kullanıcı dururken dönerse harita yine de onunla dönsün.
@@ -144,10 +157,22 @@ struct FreeRunView: View {
         .padding(.bottom, 6)
     }
 
+    /// Live Activity'de gösterilen koşu bilgileri.
+    private func activityState(phase: RunActivityAttributes.Phase = .running) -> RunLiveActivity.State {
+        RunLiveActivity.State(
+            phase: phase,
+            startedAt: startedAt,
+            finalDuration: phase == .ended ? Date.now.timeIntervalSince(startedAt) : nil,
+            distance: distance,
+            secondsPerKilometer: RunLiveActivity.pace(distance: distance, since: startedAt)
+        )
+    }
+
     /// Koşuyu bitirir: geçilen yolu bir `RunSession` ve yeni bir `TraveledPath`
     /// olarak kaydedip ekranı kapatır.
     private func endRun() {
         locationManager.stopTracking()
+        liveActivity.end(finalState: activityState(phase: .ended))
         let session = RunSession(
             startedAt: startedAt,
             segments: locationManager.pathSegments
@@ -159,6 +184,9 @@ struct FreeRunView: View {
         session.traveledPath = path
         session.user = users.first
         modelContext.insert(session)
+        // Kilit ekranından bitirilen koşuda uygulama arka plandadır ve otomatik
+        // kaydı beklemeden askıya alınabilir; kayıt hemen yazılır.
+        try? modelContext.save()
         dismiss()
     }
 }

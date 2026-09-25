@@ -42,5 +42,8 @@ private struct RootView: View {
         // Uygulamanın birincil rengi; onboarding dahil her yerde geçerli
         // (bkz. `Theme.swift`).
         .tint(.secondaryGreen)
+        // Açılışta hiçbir koşu ekranı açık değildir; kilit ekranında kalmış
+        // bir koşu kartı varsa önceki oturumdan artakalandır.
+        .task { await RunLiveActivity.endStaleActivities() }
     }
 }

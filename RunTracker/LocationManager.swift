@@ -40,6 +40,24 @@ class LocationManager: NSObject, CLLocationManagerDelegate {
         manager.requestWhenInUseAuthorization()
     }
 
+    /// Koşu ekranı açıkken telefon kilitlense de konum gelmeye devam etsin mi?
+    ///
+    /// Eskiden ekran kilitlenince uygulama askıya alınıyor, kilitliyken
+    /// koşulan kısım kayda hiç girmiyor ve Live Activity donuyordu. Yalnızca
+    /// koşu ekranları açar; diğer ekranların (harita, hava durumu) arka planda
+    /// konum tüketmesi için bir sebep yok. "Kullanımdayken" izni yeterlidir,
+    /// sistem bu sürede mavi konum göstergesini gösterir.
+    func setRunsInBackground(_ enabled: Bool) {
+        #if os(iOS)
+        manager.allowsBackgroundLocationUpdates = enabled
+        manager.showsBackgroundLocationIndicator = enabled
+        #endif
+        // Sistemin "kullanıcı duruyor" tahminiyle güncellemeleri kesmesi,
+        // trafik ışığında bekleyen koşucunun kaydını da kesiyordu.
+        manager.pausesLocationUpdatesAutomatically = !enabled
+        manager.activityType = enabled ? .fitness : .other
+    }
+
     func startTracking() {
         pathSegments = []
         isTracking = true
