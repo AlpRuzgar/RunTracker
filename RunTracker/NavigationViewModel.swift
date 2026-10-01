@@ -86,16 +86,22 @@ final class NavigationViewModel {
     private(set) var distanceToNextManeuver = 0.0
     /// Bitişe kalan mesafe (metre).
     private(set) var remainingDistance = 0.0
-    /// Haritada çizilecek güncel rota; yeniden rota sonrasında değişir.
-    private(set) var polylines: [MKPolyline] = []
-    /// Güncel rotanın gidiş yönünü gösteren oklar.
-    private(set) var arrows: [RouteArrow] = []
+    /// Güncel rotanın kullanıcının önünde kalan kısmı; yeniden rota sonrasında
+    /// ve her ilerlemede değişir. Rotaya katılmadan önce rotanın tamamıdır.
+    private(set) var upcomingPolyline: MKPolyline?
+    /// Güncel rotanın geride kalan kısmı: kullanıcının yürüdüğü ve (rotanın
+    /// ortasından katıldıysa) hiç yürümeyeceği kısım. Haritada sönük çizilir ki
+    /// yalnızca önündeki yol göze çarpsın. İlerleme yokken `nil`.
+    private(set) var completedPolyline: MKPolyline?
+    /// Rotanın önde kalan kısmındaki yön okları; geride kalanlar gizlenir.
+    var upcomingArrows: [RouteArrow] { arrows.filter { $0.distance > progressTravelled } }
     /// Kullanıcının rotaya olan dik uzaklığı (metre). Güvenilir bir konum
     /// gelene kadar `nil`: başlamayı bekleyen ekranın "0 m uzakta" yazmaması için
     /// "ölçülmedi" ile "rotanın üstünde" ayrı tutulur.
     private(set) var distanceToRoute: Double?
-    /// Kullanıcı şu an rotanın dışında mı? (Henüz yeniden rota çizdirecek
-    /// kadar uzun sürmemiş olabilir.)
+    /// Kullanıcı şu an rotanın dışında mı? Yeniden rota çizdirecek kadar uzun
+    /// sürmemiş olabilir; ekran bunu hemen gösterir ki koşucu doğrulama
+    /// güncellemelerini beklemeden geri dönebilsin.
     var isOffRoute: Bool { offRouteCount > 0 }
 
     /// Kullanıcının bu koşuda gideceği mesafe (metre): rotanın tamamı değil,
@@ -122,7 +128,7 @@ final class NavigationViewModel {
     }
 
     /// Rota çizgisinin bir köşesi.
-    private struct RoutePoint {
+    private struct TrackPoint {
         let coordinate: CLLocationCoordinate2D
         /// Bu noktanın ait olduğu adımın `steps` içindeki sırası.
         let stepIndex: Int
@@ -157,7 +163,9 @@ final class NavigationViewModel {
     private let entryTieTolerance = 20.0
 
     private var steps: [Step] = []
-    private var points: [RoutePoint] = []
+    /// Güncel rotanın bütün yön okları (bkz. `upcomingArrows`).
+    private var arrows: [RouteArrow] = []
+    private var points: [TrackPoint] = []
     /// Her adımın rota başından başlangıç mesafesi (metre).
     private var stepStart: [Double] = []
     /// Kullanıcının bulunduğu parçanın başlangıç noktasının sırası.
@@ -174,7 +182,16 @@ final class NavigationViewModel {
     private var destination: CLLocationCoordinate2D?
     private var offRouteCount = 0
     private var lastReroute: ContinuousClock.Instant?
-    private var isRerouting = false
+    /// Süren yeniden rota isteği. `stop()` onu iptal eder: yoksa durdurulmuş
+    /// navigasyona geç dönen bir cevap rotayı yeniden kurup `navigating`e
+    /// döndürürdü.
+    @ObservationIgnored private var rerouteTask: Task<Void, Never>?
+    /// Bağlantı rotalarını çeken ağ katmanı; testlerde sahtesi verilir.
+    private let directions: any DirectionsProviding
+
+    init(directions: (any DirectionsProviding)? = nil) {
+        self.directions = directions ?? MapKitDirections()
+    }
 
     // MARK: Genel kullanım
 
@@ -198,20 +215,18 @@ final class NavigationViewModel {
 
     /// Navigasyonu bitirir ve durumu temizler.
     func stop() {
+        rerouteTask?.cancel()
+        rerouteTask = nil
         steps = []
         points = []
         stepStart = []
-        polylines = []
         arrows = []
         destination = nil
         state = .idle
         currentInstruction = ""
         distanceToNextManeuver = 0
         remainingDistance = 0
-        distanceToRoute = nil
-        entryTravelled = 0
-        offRouteCount = 0
-        isRerouting = false
+        resetProgress()
     }
 
     /// Her yeni konumda çağrılır. Takip başlamadıysa kullanıcının rotaya yaklaşıp
@@ -242,6 +257,7 @@ final class NavigationViewModel {
         currentStepIndex = entry.stepIndex
         offRouteCount = 0
         state = .navigating
+        splitRoute()
         refreshGuidance()
     }
 
@@ -257,21 +273,8 @@ final class NavigationViewModel {
     ///    Kesişen rotalarda da aynı kural işler: eşitlik hâlinde kullanıcıya
     ///    rotanın daha uzun kalan kısmı verilir.
     private func entryMatch(for coordinate: CLLocationCoordinate2D) -> Match? {
-        var candidates: [Match] = []
-        var closest = Double.infinity
-
-        for i in 0..<(points.count - 1) {
-            let (start, end) = (points[i], points[i + 1])
-            let projection = Geo.project(coordinate, onto: start.coordinate, end.coordinate)
-            closest = min(closest, projection.distance)
-            candidates.append(Match(
-                travelled: start.travelled + (end.travelled - start.travelled) * projection.fraction,
-                stepIndex: projection.fraction < 1 ? start.stepIndex : end.stepIndex,
-                distance: projection.distance,
-                index: i
-            ))
-        }
-
+        let candidates = (0..<(points.count - 1)).map { match(coordinate, onSegment: $0) }
+        guard let closest = candidates.map(\.distance).min() else { return nil }
         return candidates
             .filter { $0.distance <= closest + entryTieTolerance }
             .min { $0.travelled < $1.travelled }
@@ -302,6 +305,7 @@ final class NavigationViewModel {
             progressTravelled = match.travelled
             progressIndex = match.index
             currentStepIndex = match.stepIndex
+            splitRoute()
         }
 
         refreshGuidance()
@@ -372,28 +376,27 @@ final class NavigationViewModel {
         course: Double?,
         in range: Range<Int>
     ) -> Match? {
+        // Puan, dik uzaklığa yön cezası eklenmiş hâli; kullanıcıya raporlanan
+        // sapma ise cezasız gerçek uzaklıktır.
+        range
+            .map { i in
+                (match: match(coordinate, onSegment: i),
+                 penalty: coursePenalty(course, from: points[i].coordinate, to: points[i + 1].coordinate))
+            }
+            .min { $0.match.distance + $0.penalty < $1.match.distance + $1.penalty }?
+            .match
+    }
 
-        var best: Match?
-        var bestScore = Double.infinity
-
-        for i in range {
-            let (start, end) = (points[i], points[i + 1])
-            let projection = Geo.project(coordinate, onto: start.coordinate, end.coordinate)
-
-            // Puan, dik uzaklığa yön cezası eklenmiş hâli; kullanıcıya raporlanan
-            // sapma ise cezasız gerçek uzaklıktır.
-            let score = projection.distance + coursePenalty(course, from: start.coordinate, to: end.coordinate)
-            guard score < bestScore else { continue }
-
-            bestScore = score
-            best = Match(
-                travelled: start.travelled + (end.travelled - start.travelled) * projection.fraction,
-                stepIndex: projection.fraction < 1 ? start.stepIndex : end.stepIndex,
-                distance: projection.distance,
-                index: i
-            )
-        }
-        return best
+    /// Konumun `i`. parçaya (points[i] → points[i + 1]) izdüşümü.
+    private func match(_ coordinate: CLLocationCoordinate2D, onSegment i: Int) -> Match {
+        let (start, end) = (points[i], points[i + 1])
+        let projection = Geo.project(coordinate, onto: start.coordinate, end.coordinate)
+        return Match(
+            travelled: start.travelled + (end.travelled - start.travelled) * projection.fraction,
+            stepIndex: projection.fraction < 1 ? start.stepIndex : end.stepIndex,
+            distance: projection.distance,
+            index: i
+        )
     }
 
     /// Parçanın gidiş yönü kullanıcının yönünden ne kadar farklıysa o kadar ceza.
@@ -444,22 +447,19 @@ final class NavigationViewModel {
     // MARK: Yeniden rota
 
     /// Rota dışına çıkış doğrulandı: bekleme süresi dolduysa bağlantı rotasını
-    /// çekmeye başlar. Aynı anda birden fazla istek gitmez.
+    /// çekmeye başlar. Aynı anda birden fazla istek gitmez: istek sürerken durum
+    /// `rerouting`tir ve takip (dolayısıyla bu çağrı) durur.
     private func beginReroute(from coordinate: CLLocationCoordinate2D) {
-        guard !isRerouting else { return }
         if let lastReroute, ContinuousClock.now - lastReroute < rerouteCooldown { return }
 
-        isRerouting = true
         lastReroute = .now
         state = .rerouting
-        Task { await reroute(from: coordinate) }
+        rerouteTask = Task { await reroute(from: coordinate) }
     }
 
     /// Kullanıcının konumundan, rotanın biraz ilerisindeki bir adım başlangıcına
     /// bağlantı rotası çeker ve kalan adımlarla birleştirir.
     private func reroute(from coordinate: CLLocationCoordinate2D) async {
-        defer { isRerouting = false }
-
         // Katılım noktası bir adım başlangıcı seçilir ki bağlantı rotası eski
         // adımlarla üst üste binmeden birleşsin.
         let targetTravelled = progressTravelled + rejoinLookahead
@@ -467,9 +467,15 @@ final class NavigationViewModel {
             $0 > currentStepIndex && stepStart[$0] >= targetTravelled
         } ?? steps.count - 1
 
-        guard steps.indices.contains(rejoinIndex),
-              let rejoinCoordinate = Geo.firstCoordinate(of: steps[rejoinIndex].polyline),
-              let connector = await walkingRoute(from: coordinate, to: rejoinCoordinate) else {
+        var connector: MKRoute?
+        if steps.indices.contains(rejoinIndex),
+           let rejoinCoordinate = Geo.firstCoordinate(of: steps[rejoinIndex].polyline) {
+            connector = try? await directions.walkingRoute(from: coordinate, to: rejoinCoordinate)
+        }
+        // Navigasyon bu sırada durdurulduysa cevap artık kimseye ait değil.
+        guard !Task.isCancelled else { return }
+
+        guard let connector else {
             // Bağlantı rotası bulunamadı: eski rotayla devam et. Kullanıcı hâlâ
             // dışarıdaysa cooldown dolunca tekrar denenir.
             offRouteCount = 0
@@ -485,18 +491,6 @@ final class NavigationViewModel {
         resetProgress()
         state = points.count > 1 ? .navigating : .idle
         refreshGuidance()
-    }
-
-    /// İki nokta arasındaki yürüme rotasını çeker; bulunamazsa `nil` döner.
-    private func walkingRoute(
-        from: CLLocationCoordinate2D,
-        to: CLLocationCoordinate2D
-    ) async -> MKRoute? {
-        let request = MKDirections.Request()
-        request.source = MKMapItem(location: CLLocation(latitude: from.latitude, longitude: from.longitude), address: nil)
-        request.destination = MKMapItem(location: CLLocation(latitude: to.latitude, longitude: to.longitude), address: nil)
-        request.transportType = .walking
-        return try? await MKDirections(request: request).calculate().routes.first
     }
 
     // MARK: Rota kurulumu
@@ -543,13 +537,41 @@ final class NavigationViewModel {
                     guard segment > 0.5 else { continue }
                     travelled += segment
                 }
-                points.append(RoutePoint(coordinate: coordinate, stepIndex: index, travelled: travelled))
+                points.append(TrackPoint(coordinate: coordinate, stepIndex: index, travelled: travelled))
             }
         }
 
         totalDistance = travelled
-        polylines = steps.map(\.polyline)
-        arrows = RouteArrow.along(polylines)
+        arrows = RouteArrow.along(steps.map(\.polyline))
+    }
+
+    /// Rota çizgisini kullanıcının rota üzerindeki yerinde ikiye böler: geride
+    /// kalan kısım (`completedPolyline`) ve önündeki kısım (`upcomingPolyline`).
+    /// Yalnızca ilerleme değişince çağrılır; her konumda değil.
+    private func splitRoute() {
+        guard points.count > 1 else {
+            upcomingPolyline = nil
+            completedPolyline = nil
+            return
+        }
+        let index = min(progressIndex, points.count - 2)
+        let (a, b) = (points[index], points[index + 1])
+        let span = b.travelled - a.travelled
+        let here = Geo.interpolate(
+            from: a.coordinate,
+            to: b.coordinate,
+            fraction: span > 0 ? min(max((progressTravelled - a.travelled) / span, 0), 1) : 0
+        )
+
+        let ahead = [here] + points[(index + 1)...].map(\.coordinate)
+        upcomingPolyline = MKPolyline(coordinates: ahead, count: ahead.count)
+
+        guard progressTravelled > 0 else {
+            completedPolyline = nil
+            return
+        }
+        let behind = points[...index].map(\.coordinate) + [here]
+        completedPolyline = MKPolyline(coordinates: behind, count: behind.count)
     }
 
     /// İlerlemeyi rotanın başına alır.
@@ -560,5 +582,6 @@ final class NavigationViewModel {
         currentStepIndex = 0
         offRouteCount = 0
         distanceToRoute = nil
+        splitRoute()
     }
 }

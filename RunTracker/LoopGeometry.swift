@@ -311,6 +311,49 @@ nonisolated enum BearingPlanner {
     }
 }
 
+// MARK: - Şekil sırası
+
+/// Döngü aşamasında kaç şeklin ÜRETİLİP bakılacağını ve kaçının AĞA
+/// gideceğini sayar.
+///
+/// İki sınır vardır: `maxCandidates` şekil üretilir, en fazla `maxAttempts`
+/// tanesi ağa gider. Aradaki fark, iskeleti son rotaların kopyası olan
+/// şekillerin bedava elenmesine ayrılmıştır. Eleme yalnızca bu BOŞLUKTAN yer:
+/// kalan aday hakkı kalan deneme hakkına inince kapanır, yani `maxAttempts`
+/// gerçek deneme her hâlükârda yapılır. Aksi halde çevresindeki her yönü
+/// kullanmış bir kullanıcıda tüm adaylar elenir, döngü aşaması ağa hiç gitmeden
+/// biter ve hafifçe örtüşen bir döngü yerine aynı yolu iki kez yürüten git-gel
+/// rotası verilirdi — çeşitlilik adına daha tekrarlı bir sonuç.
+nonisolated struct ShapeSchedule {
+    let maxAttempts: Int
+    let maxCandidates: Int
+    private(set) var attempts = 0
+    private(set) var candidates = 0
+
+    init(maxAttempts: Int, maxCandidates: Int) {
+        self.maxAttempts = maxAttempts
+        self.maxCandidates = maxCandidates
+    }
+
+    var hasNext: Bool { attempts < maxAttempts && candidates < maxCandidates }
+
+    /// Sıradaki adayı sayar ve sırasını (0'dan) döndürür; yön planı bu sırayla
+    /// dağıtılır (bkz. `BearingPlanner.bearing(forAttempt:)`).
+    mutating func nextCandidate() -> Int {
+        defer { candidates += 1 }
+        return candidates
+    }
+
+    /// Az önce alınan aday, deneme hakkına dokunmadan elenebilir mi?
+    var canSkip: Bool { maxCandidates - candidates >= maxAttempts - attempts }
+
+    /// Az önce alınan aday ağa gidiyor; kaçıncı deneme olduğunu (1'den) döndürür.
+    mutating func recordAttempt() -> Int {
+        attempts += 1
+        return attempts
+    }
+}
+
 // MARK: - Öğrenilen dolambaç katsayısı
 
 /// Bölgedeki sokak ağının dolambaç katsayısı (yol mesafesi / kuş uçuşu).
@@ -415,7 +458,7 @@ nonisolated struct RouteFootprint {
     private let grid: [Cell: [Int]]
 
     init(_ coordinates: [CLLocationCoordinate2D]) {
-        let samples = Self.resample(coordinates, every: Self.spacing)
+        let samples = MeasuredPath(coordinates).samples(every: Self.spacing)
         let origin = samples.first ?? CLLocationCoordinate2D()
 
         var grid: [Cell: [Int]] = [:]
@@ -494,26 +537,5 @@ nonisolated struct RouteFootprint {
             x: Int((offset.east / cellSize).rounded(.down)),
             y: Int((offset.north / cellSize).rounded(.down))
         )
-    }
-
-    /// Koordinatları eşit aralıklı örneklere çevirir: uzun düz parçalara ara
-    /// noktalar eklenir, sık noktalar seyreltilir.
-    private static func resample(_ coordinates: [CLLocationCoordinate2D], every step: Double) -> [CLLocationCoordinate2D] {
-        guard let first = coordinates.first else { return [] }
-
-        var samples = [first]
-        var sinceLastSample = 0.0
-        for (a, b) in zip(coordinates, coordinates.dropFirst()) {
-            let length = Geo.distance(a, b)
-            guard length > 0 else { continue }
-
-            var position = step - sinceLastSample
-            while position <= length {
-                samples.append(Geo.interpolate(from: a, to: b, fraction: position / length))
-                position += step
-            }
-            sinceLastSample = length - (position - step)
-        }
-        return samples
     }
 }

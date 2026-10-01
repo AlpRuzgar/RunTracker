@@ -77,8 +77,9 @@ final class RunLiveActivity {
 
     /// Ortalama tempo (sn/km). İlk metrelerde GPS gürültüsü tempoyu saçma
     /// değerlere (km'de 40 dk gibi) fırlattığı için 50 m'den önce hesaplanmaz.
-    static func pace(distance: Double, since startedAt: Date?) -> Double? {
+    /// `end` verilirse (bitmiş koşu) süre o anda durur.
+    static func pace(distance: Double, since startedAt: Date?, until end: Date = .now) -> Double? {
         guard let startedAt, distance >= 50 else { return nil }
-        return Date.now.timeIntervalSince(startedAt) / (distance / 1000)
+        return end.timeIntervalSince(startedAt) / (distance / 1000)
     }
 }

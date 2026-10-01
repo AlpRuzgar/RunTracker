@@ -22,10 +22,14 @@ struct RouteArrow: Identifiable, Equatable {
     let coordinate: CLLocationCoordinate2D
     /// Gidiş yönü (0–360 derece, kuzeyden saat yönünde).
     let heading: Double
+    /// Rotanın başından bu oka yürünen mesafe (metre). Navigasyon, kullanıcının
+    /// geride bıraktığı okları buna göre gizler.
+    let distance: Double
 
     static func == (lhs: RouteArrow, rhs: RouteArrow) -> Bool {
         lhs.id == rhs.id
             && lhs.heading == rhs.heading
+            && lhs.distance == rhs.distance
             && lhs.coordinate.latitude == rhs.coordinate.latitude
             && lhs.coordinate.longitude == rhs.coordinate.longitude
     }
@@ -60,7 +64,8 @@ extension RouteArrow {
                 heading: Geo.bearing(
                     from: path.coordinate(at: travelled - headingSpan),
                     to: path.coordinate(at: travelled + headingSpan)
-                )
+                ),
+                distance: travelled
             )
         }
     }
@@ -69,49 +74,9 @@ extension RouteArrow {
     /// hesaplanır; `along`ın alt/üst sınırları burada uygulanmaz, yoksa uzun bir
     /// rota küçük resimde yine on küsur okla dolardı.
     static func sparse(along polylines: [MKPolyline]) -> [RouteArrow] {
-        let length = MeasuredPath(Geo.joinedCoordinates(of: polylines)).length
+        let length = Geo.length(of: Geo.joinedCoordinates(of: polylines))
         guard length > 0 else { return [] }
         return along(polylines, spacing: length / compactCount)
-    }
-}
-
-// MARK: - Mesafeye göre okunabilen çizgi
-
-/// Koordinat dizisini "başından şu kadar metre ileride hangi nokta var?"
-/// sorusuna cevap verebilecek şekilde saklar.
-private struct MeasuredPath {
-    private let coordinates: [CLLocationCoordinate2D]
-    /// `travelled[i]`, dizinin başından `coordinates[i]`ye yürünen mesafe.
-    private let travelled: [Double]
-
-    var length: Double { travelled.last ?? 0 }
-
-    init(_ coordinates: [CLLocationCoordinate2D]) {
-        self.coordinates = coordinates
-
-        var total = 0.0
-        var distances = coordinates.isEmpty ? [] : [0.0]
-        for (a, b) in zip(coordinates, coordinates.dropFirst()) {
-            total += Geo.distance(a, b)
-            distances.append(total)
-        }
-        self.travelled = distances
-    }
-
-    /// Çizginin başından `distance` metre ileride kalan nokta; dışarıda kalan
-    /// mesafeler uçlara kırpılır.
-    func coordinate(at distance: Double) -> CLLocationCoordinate2D {
-        guard let first = coordinates.first, let last = coordinates.last else {
-            return CLLocationCoordinate2D()
-        }
-        guard distance > 0 else { return first }
-        guard distance < length else { return last }
-
-        guard let next = travelled.firstIndex(where: { $0 >= distance }), next > 0 else { return first }
-        let segment = travelled[next] - travelled[next - 1]
-        let fraction = segment > 0 ? (distance - travelled[next - 1]) / segment : 0
-
-        return Geo.interpolate(from: coordinates[next - 1], to: coordinates[next], fraction: fraction)
     }
 }
 

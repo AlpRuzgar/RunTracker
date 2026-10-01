@@ -29,21 +29,6 @@ protocol FollowablePath {
     var distance: Double { get }
 }
 
-extension FollowablePath {
-    /// Yolun başladığı yerin ilçe/semt adı. Başlangıç noktası bilinmiyorsa
-    /// (ör. hiç konum kaydedilmeden bitirilen bir serbest koşu) hata fırlatır.
-    @MainActor
-    var district: String {
-        get async throws {
-            guard let coordinate = startCoordinate else {
-                throw NSError(domain: "FollowablePath", code: 0, userInfo: [NSLocalizedDescriptionKey: "Başlangıç konumu yok"])
-            }
-            let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-            return try await location.getCityDistrict()
-        }
-    }
-}
-
 extension GeneratedRoute: FollowablePath {
     /// Döngü başladığı yerde biter.
     var destination: CLLocationCoordinate2D? { start }

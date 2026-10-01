@@ -13,7 +13,8 @@ struct MapView: View {
     /// Uygulama genelinde paylaşılan tek üretim motoru (bkz. `RunTrackerApp`).
     @Environment(RouteViewModel.self) private var routes
     @Environment(User.self) private var user
-    @State private var locationManager = LocationManager()
+    /// Ana ekranla paylaşılan konum kaynağı (bkz. `MainView`).
+    @Environment(LocationManager.self) private var locationManager
     @State private var distance: Double = 0
     @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
     @FocusState private var isDistanceFocused: Bool
@@ -141,14 +142,13 @@ struct MapView: View {
 
                     Button {
                         isDistanceFocused = false
-                        routes.generate(from: locationManager.userLocationCoordinate2D,
+                        routes.generate(from: locationManager.userLocation?.coordinate,
                                         targetKilometers: distance)
                     } label: {
                         if routes.isGenerating {
                             ProgressView().tint(Color.onAccent)
                         } else {
                             Label(generateButtonText, systemImage: generateButtonSymbol)
-                                .foregroundStyle(.white)
                         }
                     }
                     .buttonStyle(PrimaryButtonStyle())
@@ -161,7 +161,6 @@ struct MapView: View {
                         navigatingRoute = route
                     } label: {
                         Label("Start navigation", systemImage: "location.north.fill")
-                            .foregroundStyle(.white)
                     }
                     // Koşuyu başlatan eylem secondaryGreen: rotanın haritadaki rengi
                     // de o, ikisi aynı şeyi anlatıyor.
@@ -283,6 +282,7 @@ struct MapView: View {
 #Preview {
     MapView()
         .environment(RouteViewModel())
+        .environment(LocationManager())
         .environment(
             User(name: "Alp", sex: .male, bday: .now, heightCM: 175,
                  weightKG: 70, targetDistance: 5, motivation: .hobby)

@@ -45,103 +45,51 @@ struct FreeRunView: View {
         .safeAreaInset(edge: .top) {
             // Serbest koşuda takip edilecek bir rota yok; üst şerit yalnızca
             // geri dönüşü ve ekranın ne olduğunu taşır.
-            HStack(spacing: 12) {
-                backButton
+            RunTopBanner {
                 Label("Free run", systemImage: "figure.run")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    .frame(maxWidth: .infinity)
-                backButton.hidden()
             }
-            .padding(14)
-            .glassVisual(.regular, in: .rect(cornerRadius: 26, style: .continuous))
-            .padding(.horizontal, Metrics.gutter)
-            .padding(.top, 6)
         }
         .safeAreaInset(edge: .bottom) {
             statsBar
         }
-        .onAppear {
-            startedAt = .now
-            locationManager.setRunsInBackground(true)
-            locationManager.startTracking()
-            liveActivity.start(kind: .freeRun, state: activityState())
-            // Live Activity'deki "End" düğmesi bu ekranın kendi düğmesiyle
-            // aynı işi yapar (bkz. `EndRunIntent`).
-            RunActivityBridge.endRun = { endRun() }
-        }
-        .onDisappear {
-            locationManager.stopTracking()
-            locationManager.setRunsInBackground(false)
-            // Kaydetmeden geri dönüldüyse etkinlik hemen kapanır; kaydedildiyse
-            // `endRun` onu zaten son hâliyle kapattı.
-            liveActivity.end()
-            RunActivityBridge.endRun = nil
-        }
-        .onChange(of: locationManager.userLocation) { _, newLocation in
-            camera.follow(location: newLocation, heading: locationManager.travelDirection)
-            liveActivity.update(activityState())
-        }
-        .onChange(of: locationManager.userHeading) { _, _ in
-            // Kullanıcı dururken dönerse harita yine de onunla dönsün.
-            camera.follow(location: locationManager.userLocation, heading: locationManager.travelDirection)
-        }
-    }
-
-    /// Ekranın tek gezinme öğesi: koşu ekranları tam ekran açılır, gezinme
-    /// çubuğu taşımazlar. Koşuyu KAYDETMEZ — kaydeden düğme alttaki "End run".
-    private var backButton: some View {
-        Button {
-            dismiss()
-        } label: {
-            Image(systemName: "chevron.left")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(.primary)
-                .frame(width: 38, height: 38)
-        }
-        .glassVisual(.regular, in: .circle)
-        .accessibilityLabel("Back")
+        .runScreenLifecycle(
+            locationManager: locationManager,
+            camera: camera,
+            liveActivity: liveActivity,
+            kind: .freeRun,
+            activityState: { activityState() },
+            endRun: { endRun() },
+            onStart: {
+                startedAt = .now
+                locationManager.startTracking()
+            }
+        )
     }
 
     /// Mesafe, süre ve koşuyu bitirme düğmesini taşıyan alt şerit.
     private var statsBar: some View {
-        VStack(spacing: 14) {
+        RunBottomPanel {
             HStack(alignment: .center, spacing: 14) {
-                VStack(alignment: .leading, spacing: 2) {
+                RunStat(label: "distance") {
                     Text(distanceMeasurement.formatted(
                         .measurement(width: .abbreviated, usage: .road,
                                      numberFormatStyle: .number.precision(.fractionLength(2))))
                     )
-                    .font(.display(24, weight: .bold))
-                    .monospacedDigit()
-                    Text("distance")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
-                Divider().frame(height: 34).overlay(Color.primary.opacity(0.12))
+                RunStatDivider()
 
-                VStack(alignment: .leading, spacing: 2) {
+                RunStat(
+                    label: locationManager.isPaused ? "paused" : "elapsed",
+                    labelColor: locationManager.isPaused ? .primaryBlue : .secondary
+                ) {
                     Text(startedAt, style: .timer)
-                        .font(.display(24, weight: .bold))
-                        .monospacedDigit()
-                    Text(locationManager.isPaused ? "paused" : "elapsed")
-                        .font(.caption)
-                        .foregroundStyle(locationManager.isPaused ? .primaryBlue : .secondary)
                 }
 
                 Spacer(minLength: 0)
 
-                // Takip kapatılınca kullanıcı haritayı serbestçe inceleyebilir.
-                Button {
-                    camera.isFollowing.toggle()
-                } label: {
-                    Image(systemName: camera.isFollowing ? "location.fill" : "location.slash")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(camera.isFollowing ? .primaryBlue : .secondary)
-                        .frame(width: 38, height: 38)
-                }
-                .glassVisual(.regular, in: .circle)
-                .accessibilityLabel(camera.isFollowing ? "Stop following" : "Follow me")
+                FollowToggle(camera: camera, tint: .primaryBlue)
             }
 
             Button {
@@ -151,10 +99,6 @@ struct FreeRunView: View {
             }
             .buttonStyle(PrimaryButtonStyle())
         }
-        .padding(16)
-        .glassVisual(.regular, in: .rect(cornerRadius: 26, style: .continuous))
-        .padding(.horizontal, Metrics.gutter)
-        .padding(.bottom, 6)
     }
 
     /// Live Activity'de gösterilen koşu bilgileri.
@@ -173,20 +117,13 @@ struct FreeRunView: View {
     private func endRun() {
         locationManager.stopTracking()
         liveActivity.end(finalState: activityState(phase: .ended))
-        let session = RunSession(
+        RunSession.saveFinishedRun(
             startedAt: startedAt,
-            segments: locationManager.pathSegments
+            segments: locationManager.pathSegments,
+            pathName: "Free run",
+            user: users.first,
+            in: modelContext
         )
-        let path = TraveledPath(
-            name: "Free run — \(startedAt.formatted(date: .abbreviated, time: .shortened))",
-            segments: session.segments
-        )
-        session.traveledPath = path
-        session.user = users.first
-        modelContext.insert(session)
-        // Kilit ekranından bitirilen koşuda uygulama arka plandadır ve otomatik
-        // kaydı beklemeden askıya alınabilir; kayıt hemen yazılır.
-        try? modelContext.save()
         dismiss()
     }
 }

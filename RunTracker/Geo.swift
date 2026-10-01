@@ -78,21 +78,6 @@ nonisolated enum Geo {
         return destination(from: coordinate, bearingDegrees: atan2(east, north) * 180 / .pi, distanceMeters: distance)
     }
 
-    /// Noktayı merkez etrafında döndürür ve/veya merkeze doğru çeker.
-    static func adjust(
-        _ point: CLLocationCoordinate2D,
-        around center: CLLocationCoordinate2D,
-        rotateBy degrees: Double,
-        scaleBy factor: Double
-    ) -> CLLocationCoordinate2D {
-        guard degrees != 0 || factor != 1 else { return point }
-        return destination(
-            from: center,
-            bearingDegrees: bearing(from: center, to: point) + degrees,
-            distanceMeters: distance(center, point) * factor
-        )
-    }
-
     /// İki nokta arasında oransal ara nokta. Kısa parçalarda doğrusal ara
     /// değer küresel hesapla ayırt edilemez.
     static func interpolate(
@@ -104,6 +89,11 @@ nonisolated enum Geo {
             latitude: a.latitude + (b.latitude - a.latitude) * fraction,
             longitude: a.longitude + (b.longitude - a.longitude) * fraction
         )
+    }
+
+    /// Koordinat dizisinin uç uca uzunluğu (metre).
+    static func length(of coordinates: [CLLocationCoordinate2D]) -> Double {
+        zip(coordinates, coordinates.dropFirst()).reduce(0) { $0 + distance($1.0, $1.1) }
     }
 
     // MARK: İzdüşüm
@@ -161,6 +151,61 @@ nonisolated enum Geo {
             }
         }
         return joined
+    }
+}
+
+// MARK: - Mesafeye göre okunabilen çizgi
+
+/// Koordinat dizisini "başından şu kadar metre ileride hangi nokta var?"
+/// sorusuna cevap verebilecek şekilde saklar. Yön okları (`RouteArrow`) ve rota
+/// izinin eşit aralıklı örnekleri (`RouteFootprint`) aynı ölçümü kullanır.
+nonisolated struct MeasuredPath {
+    let coordinates: [CLLocationCoordinate2D]
+    /// `travelled[i]`, dizinin başından `coordinates[i]`ye yürünen mesafe.
+    let travelled: [Double]
+
+    var length: Double { travelled.last ?? 0 }
+
+    init(_ coordinates: [CLLocationCoordinate2D]) {
+        self.coordinates = coordinates
+
+        var total = 0.0
+        var distances = coordinates.isEmpty ? [] : [0.0]
+        for (a, b) in zip(coordinates, coordinates.dropFirst()) {
+            total += Geo.distance(a, b)
+            distances.append(total)
+        }
+        self.travelled = distances
+    }
+
+    /// Çizginin başından `distance` metre ileride kalan nokta; dışarıda kalan
+    /// mesafeler uçlara kırpılır.
+    func coordinate(at distance: Double) -> CLLocationCoordinate2D {
+        guard let first = coordinates.first, let last = coordinates.last else {
+            return CLLocationCoordinate2D()
+        }
+        guard distance > 0 else { return first }
+        guard distance < length else { return last }
+
+        // İkili arama: `travelled` artan sıralıdır. Rota izi yüzlerce örneği
+        // tek tek sorduğu için doğrusal arama çizgi uzadıkça karesel büyürdü.
+        var low = 1
+        var high = travelled.count - 1
+        while low < high {
+            let mid = (low + high) / 2
+            if travelled[mid] >= distance { high = mid } else { low = mid + 1 }
+        }
+        let next = low
+        let segment = travelled[next] - travelled[next - 1]
+        let fraction = segment > 0 ? (distance - travelled[next - 1]) / segment : 0
+
+        return Geo.interpolate(from: coordinates[next - 1], to: coordinates[next], fraction: fraction)
+    }
+
+    /// Çizgi boyunca `step` metre aralıklı noktalar; ilki çizginin başı.
+    func samples(every step: Double) -> [CLLocationCoordinate2D] {
+        guard !coordinates.isEmpty else { return [] }
+        return stride(from: 0, through: length, by: step).map(coordinate(at:))
     }
 }
 

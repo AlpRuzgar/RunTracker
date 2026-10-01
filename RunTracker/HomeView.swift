@@ -12,13 +12,8 @@ import MapKit
 
 struct HomeView: View {
     @Environment(User.self) private var user
-
-    /// Uygulama genelinde paylaşılan tek üretim motoru (bkz. `RunTrackerApp`).
-    /// Ana ekranın kendi motoru vardı: MapKit kotasını Run sekmesinden habersiz
-    /// harcıyor, öğrendiği dolambaç katsayısını saklamıyor ve ürettiği rotayı
-    /// Run sekmesiyle paylaşmıyordu.
-    @Environment(RouteViewModel.self) private var routes
-    @State private var locationManager = LocationManager()
+    /// Run sekmesiyle paylaşılan konum kaynağı (bkz. `MainView`).
+    @Environment(LocationManager.self) private var locationManager
     @State private var timeOfDayMessage = "Ready to get moving?"
 
     @Query private var currentWeekSessions: [RunSession]
@@ -52,14 +47,8 @@ struct HomeView: View {
             // Başlık içerikte; gezinme çubuğu boş kalsın ki ekran krem zeminle
             // tek parça görünsün.
         }
-        .task(id: locationManager.userLocation == nil) {
+        .task {
             timeOfDayMessage = Self.greeting()
-            guard let location = locationManager.userLocation else { return }
-
-            // Rota, havadan ÖNCE ve ondan bağımsız istenir. Eskiden hava
-            // çağrısının arkasındaydı: hava servisi yanıt vermediğinde kart
-            // sonsuza kadar "Generating" yazıyor, rota hiç istenmiyordu.
-            routes.generateIfNeeded(from: location.coordinate, targetKilometers: user.targetDistance)
         }
     }
 
@@ -185,6 +174,6 @@ struct HomeView: View {
                 motivation: .hobby
             )
         )
-        .environment(RouteViewModel())
+        .environment(LocationManager())
         .modelContainer(for: [User.self, RunSession.self, TraveledPath.self], inMemory: true)
 }

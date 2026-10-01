@@ -24,7 +24,7 @@ protocol DirectionsProviding {
     func walkingRoute(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) async throws -> MKRoute?
 }
 
-enum DirectionsFailure: Error {
+nonisolated enum DirectionsFailure: Error, Hashable {
     /// Sunucu istekleri sınırlıyor (`MKError.loadingThrottled`).
     case throttled
     /// Sunucuya ulaşılamadı ya da geçici bir sunucu hatası oluştu.
@@ -141,11 +141,9 @@ final class RequestPacer {
 /// Yürüme bacaklarını çeker ve saklar.
 ///
 /// Çekmek ile kullanmak ayrı adımlardır: `prefetch` eksik bacakları ağdan cache'e
-/// doldurur, `legs(around:)` cache'ten okur. Bunun iki faydası var:
-/// 1. İstek atılmadan önce maliyet bilinir (`missingCount`): üretim, bütçesi
-///    yetmeyecek bir turu hiç başlatmaz; yarıda kesmek zorunda kalmaz.
-/// 2. Throttle ile kesilen bir turda o ana kadar gelen bacaklar kaybolmaz;
-///    tur tekrarlandığında yalnızca eksikler istenir.
+/// doldurur, `legs(around:)` cache'ten okur. Böylece throttle ile kesilen bir
+/// turda o ana kadar gelen bacaklar kaybolmaz; tur tekrarlandığında yalnızca
+/// eksikler istenir.
 final class LegFetcher {
     enum Leg {
         case route(MKRoute)
@@ -192,11 +190,6 @@ final class LegFetcher {
         let excess = cache.count - capacity / 2
         for key in insertions.prefix(excess) { cache[key] = nil }
         insertions.removeFirst(min(excess, insertions.count))
-    }
-
-    /// Kapalı bir yolun (son noktadan başa dönülür) kaç bacağı için ağa gidilmesi gerektiği.
-    func missingCount(around ring: [CLLocationCoordinate2D]) -> Int {
-        Set(pairs(around: ring).map { Key($0.from, $0.to) }).count { cache[$0] == nil }
     }
 
     /// Eksik bacakları çeker. Throttle ya da ağ hatasında kardeş istekler iptal

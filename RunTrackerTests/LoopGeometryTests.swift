@@ -244,21 +244,51 @@ struct BearingAndDetourTests {
         #expect(estimate.factor(near: origin, bearing: 10) == 2.0)
     }
 
-    /// Bütçe sabit bir sayı değil; planın en kötü maliyetinden türer ve plan
-    /// büyüdükçe onunla birlikte büyür.
-    @Test func requestBudgetIsDerivedFromPlan() {
-        var policy = GenerationPolicy()
-        let perEvaluation = policy.vertexCountRange.upperBound + 2
-        let recoveries = policy.maxRecoveries + policy.maxThrottleRecoveries
-        #expect(policy.loopRequestBudget
-                == (policy.maxLoopAttempts * policy.maxEvaluations + recoveries) * perEvaluation)
+    /// Geçici ağ hatasında bekleme her toparlanmada ikiye katlanır; throttle'da
+    /// ise tek, uzun bir bekleme vardır.
+    @Test func backoffDependsOnFailureKind() {
+        let policy = GenerationPolicy()
+        #expect(policy.backoff(forRecovery: 1, after: .unavailable) == .seconds(1))
+        #expect(policy.backoff(forRecovery: 3, after: .unavailable) == .seconds(4))
+        #expect(policy.backoff(forRecovery: 1, after: .throttled) == policy.throttleBackoff)
+        #expect(policy.recoveryLimit(for: .throttled) == policy.maxThrottleRecoveries)
+        #expect(policy.recoveryLimit(for: .unavailable) == policy.maxRecoveries)
+    }
+}
 
-        let before = policy.loopRequestBudget
-        policy.maxLoopAttempts += 1
-        #expect(policy.loopRequestBudget == before + policy.maxEvaluations * perEvaluation)
+// MARK: - Şekil sırası
 
-        #expect(policy.backoff(forRecovery: 1) == .seconds(1))
-        #expect(policy.backoff(forRecovery: 3) == .seconds(4))
+struct ShapeScheduleTests {
+    /// Her aday elenmek istese bile eleme yalnızca boşluktan yer: deneme
+    /// hakkının tamamı yine kullanılır.
+    @Test func skippingNeverEatsIntoAttempts() {
+        var schedule = ShapeSchedule(maxAttempts: 4, maxCandidates: 10)
+        var skipped = 0
+        var bearings: [Int] = []
+
+        while schedule.hasNext {
+            bearings.append(schedule.nextCandidate())
+            if schedule.canSkip {
+                skipped += 1
+                continue
+            }
+            _ = schedule.recordAttempt()
+        }
+
+        #expect(skipped == 6)
+        #expect(schedule.attempts == 4)
+        #expect(bearings == Array(0..<10))
+    }
+
+    /// Eleme yoksa deneme hakkı dolunca durulur; aday hakkı boşa harcanmaz.
+    @Test func stopsAfterAttemptsWithoutSkipping() {
+        var schedule = ShapeSchedule(maxAttempts: 4, maxCandidates: 10)
+        while schedule.hasNext {
+            _ = schedule.nextCandidate()
+            _ = schedule.recordAttempt()
+        }
+        #expect(schedule.attempts == 4)
+        #expect(schedule.candidates == 4)
     }
 }
 

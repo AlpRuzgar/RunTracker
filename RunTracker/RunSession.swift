@@ -18,8 +18,6 @@ import SwiftData
 ///
 /// Geçilen yol, planlanan rotadan ayrı tutulur: rota nereden gidilmesi
 /// gerektiğini, bu kayıt ise gerçekte nereden gidildiğini gösterir.
-
-// RunSession.swift
 @Model
 final class RunSession {
     var startedAt: Date
@@ -53,6 +51,7 @@ final class RunSession {
             return try await location.getCityDistrict()
         }
     }
+
     init(
         startedAt: Date,
         endedAt: Date = .now,
@@ -70,16 +69,36 @@ final class RunSession {
         self.segments = recorded.map { RouteSegment(points: $0.map(RoutePoint.init)) }
     }
 
+    /// Parçaların toplam uzunluğu (metre). Parçalar arası boşluk (duraklama)
+    /// sayılmaz.
     static func distance(of segments: [[CLLocationCoordinate2D]]) -> Double {
-        segments.reduce(0) { total, segment in
-            total + zip(segment, segment.dropFirst()).reduce(0) { $0 + Geo.distance($1.0, $1.1) }
-        }
+        segments.reduce(0) { $0 + Geo.length(of: $1) }
     }
+}
 
-    func formatted(seconds: TimeInterval) -> String {
-        Duration.seconds(seconds).formatted(
-            .time(pattern: seconds < 3600 ? .minuteSecond : .hourMinuteSecond)
+extension RunSession {
+    /// Biten bir koşuyu ve geçilen yolu (yeniden koşulabilsin diye yeni bir
+    /// `TraveledPath` olarak) kaydeder. İki koşu ekranı da bunu kullanır.
+    ///
+    /// Kayıt hemen diske yazılır: kilit ekranından bitirilen koşuda uygulama
+    /// arka plandadır ve otomatik kaydı beklemeden askıya alınabilir.
+    static func saveFinishedRun(
+        startedAt: Date,
+        endedAt: Date = .now,
+        segments: [[CLLocationCoordinate2D]],
+        plannedDistance: Double? = nil,
+        pathName: String,
+        user: User?,
+        in context: ModelContext
+    ) {
+        let session = RunSession(startedAt: startedAt, endedAt: endedAt, segments: segments, plannedDistance: plannedDistance)
+        session.traveledPath = TraveledPath(
+            name: "\(pathName) — \(startedAt.formatted(date: .abbreviated, time: .shortened))",
+            segments: session.segments
         )
+        session.user = user
+        context.insert(session)
+        try? context.save()
     }
 }
 
@@ -92,10 +111,10 @@ extension RunSession {
     }
 }
 
-// MARK: - Harita katmanı
+// MARK: - Kayıtlı yol
 
-/// Kullanıcının gerçekten geçtiği yol. Planlanan rotadan (mavi) ayırt edilsin
-/// diye ayrı renkte ve onun üstünde çizilir.
+/// Kullanıcının gerçekten geçtiği, yeniden koşulabilen (bkz. `FollowablePath`)
+/// ve favorilere eklenebilen yol.
 @Model
 final class TraveledPath {
     var name: String
@@ -117,16 +136,14 @@ final class TraveledPath {
     }
 }
 
-/// Bir koşuda gerçekten geçilen yolun haritada çizimi. Persist edilmez,
-/// `RunSession.segments`'tan view'da her seferinde türetilir.
+// MARK: - Harita katmanı
+
+/// Bir koşuda gerçekten geçilen yolun haritada çizimi. Persist edilmez, koşu
+/// ekranında canlı olarak çizilir; planlanan rotanın (`RouteOverlay`) üstünde
+/// ayrı renkte durur.
 struct RunRouteOverlay: MapContent {
     let segments: [[CLLocationCoordinate2D]]
     var tint: Color = .orange
-
-    init(_ session: RunSession, tint: Color = .orange) {
-        segments = session.segments.map { $0.points.map(\.coordinate) }
-        self.tint = tint
-    }
 
     init(segments: [[CLLocationCoordinate2D]], tint: Color = .orange) {
         self.segments = segments.filter { $0.count > 1 }

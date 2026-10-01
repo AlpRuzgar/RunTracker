@@ -9,168 +9,10 @@ import Foundation
 import MapKit
 import CoreLocation
 
-// MARK: - Ayarlar
-
-/// Üretimin tüm ayarları ve bunlardan TÜRETİLEN istek bütçesi. Saf bir değer
-/// tipi; bütçe formülü ağ olmadan test edilebilir.
-nonisolated struct GenerationPolicy {
-
-    // MARK: Şekil
-
-    /// Döngüdeki köşe sayısı (başlangıç dahil) = bir turdaki bacak/istek sayısı.
-    /// Üst sınır 6: köşe sayısı arttıkça döngü daha çok sokağa uğrar, yani
-    /// çeşitlilik artar. Tipik üretim artık tek tur sürdüğü (bkz. `acceptance`)
-    /// için fazladan köşe patlama kredisinin içinde kalıyor.
-    var vertexCountRange = 4...6
-    /// Açılış yönüne eklenen sapmanın EN AZI (± derece). Serbest yay genişse
-    /// sapma `maxBearingJitter`'a kadar açılır; bkz. `BearingPlanner.leastUsed`.
-    var bearingJitter = 20.0
-    /// Sapmanın üst sınırı (± derece): serbest yay ne kadar genişse genişlesin
-    /// temel yönden bu kadar uzaklaşılır, yoksa "en uzak yön" seçimi anlamsızlaşır.
-    var maxBearingJitter = 60.0
-
-    // MARK: Yakınsama
-
-    /// Sapma bunun altına inince yarıçap düzeltmesi durur (±%10).
-    var tolerance = 0.10
-    /// Döngünün doğrudan kabul edildiği en büyük sapma (±%20). Genişçe tutulur:
-    /// ilk tahmin ne kadar sık kabul edilirse düzeltme turunun istekleri o kadar
-    /// sık atlanır; hem kota hem bekleme süresi kazanılır. Bu eşik her turun
-    /// SONUNDA uygulanır (bkz. `fit`): kabul edilebilir rota bulunduğu anda
-    /// yakınsama durur.
-    var acceptance = 0.20
-    /// Yedeklerin (gevşek döngü, git-gel) kabul sınırı (±%25).
-    var fallbackTolerance = 0.25
-    /// Bir şekil için en fazla yarıçap turu: 1 ilk tahmin + 2 düzeltme. Orantısal
-    /// düzeltme tipik olarak 1 düzeltmede ±%10'a indiği için 2'si pay bırakır.
-    var maxEvaluations = 3
-    /// Kaç farklı döngü şekli için AĞA GİDİLİR.
-    var maxLoopAttempts = 4
-    /// Kaç farklı döngü şekli ÜRETİLİP bakılır. Aradaki fark bedava elenenlere
-    /// ayrılmıştır (bkz. `maxSkeletonOverlap`): iskeleti son rotaların kopyası
-    /// olan şekil, deneme hakkı harcamadan atlanır.
-    var maxShapeCandidates = 10
-    /// Döngü bulunamazsa kaç yönde git-gel denenecek.
-    var fallbackAttempts = 3
-
-    // MARK: Cache ve waypoint
-
-    /// Düzeltme turunda bu kadar (metre) kayan waypoint yerinde bırakılır; bkz.
-    /// `LoopShape.pin`. Yarım sokak boyundan (~50 m) kısa: MapKit iki noktayı da
-    /// çoğunlukla aynı yola oturtur. Navigasyonun rota dışı eşiğinden (40 m) de
-    /// kısa: haritada fark görünmez.
-    var pinTolerance = 35.0
-    /// Waypoint'in oturtulduğu yol bundan uzaksa (metre) waypoint kullanılamaz
-    /// sayılır: su, özel arazi, yolsuz alan.
-    var maxSnapDistance = 150.0
-    /// Kullanılamayan waypoint pivota doğru bu orana çekilir (şekil başına tek onarım).
-    var repairPull = 0.6
-
-    // MARK: Çeşitlilik
-
-    /// Yeni rota, aynı yerden üretilmiş son rotalardan biriyle bu orandan fazla
-    /// örtüşürse "aynı rota" sayılır.
-    ///
-    /// Neden 0.6: Başlangıç bölgesi hariç tutulunca farklı yönlere açılan meşru
-    /// döngüler tipik olarak %30'un altında örtüşür; aynı sokaklardan geçen
-    /// neredeyse-kopyalar %75'in üstünde. 0.6 bu iki kümenin arasında kalır ve tek
-    /// çıkışlı yerlerde (köprü, sahil yolu, park içi tek patika) zorunlu ortak
-    /// kısımlara pay bırakır. ≤0.4 bu yerlerde meşru rotaları eler; ≥0.8 neredeyse
-    /// aynı rotayı "yeni" diye geçirir. Eşik ne olursa olsun üretimi başarısız
-    /// yapamaz: yalnızca örtüşme yüzünden elenen aday yedek olarak saklanır.
-    var maxOverlap = 0.6
-    /// Örtüşmede "aynı sokak" genişliği (metre): karşı kaldırım + çizgi sapması.
-    var overlapCorridor = 25.0
-    /// Kuş uçuşu iskelet, son rotalardan birinin koridoruna bu orandan fazla
-    /// oturuyorsa şekil AĞA HİÇ GİDİLMEDEN elenir.
-    ///
-    /// Eskiden benzerlik ancak bacaklar çekildikten sonra anlaşılıyor, elenen her
-    /// deneme 4–6 isteği (ve saniyelerce beklemeyi) çöpe atıyordu. Eşik temkinli
-    /// (yüksek) tutulur: eleme bedava olduğu için yalnızca bariz kopyaları kesmesi
-    /// yeter, meşru bir şekli yanlışlıkla elemek ise gerçek bir kayıptır.
-    var maxSkeletonOverlap = 0.75
-    /// İskelet karşılaştırmasının koridoru (metre). `overlapCorridor`'dan geniş:
-    /// iskelet düz çizgilerden oluşur, gerçek rota ise sokakları takip eder.
-    var skeletonCorridor = 50.0
-    /// Başlangıç çevresinde örtüşme ve tekrar hesabına katılmayan bölge (metre).
-    var startZone = 200.0
-    /// Kaç son rotayla karşılaştırılır. Tüm geçmişle karşılaştırmak, bir süre sonra
-    /// çevredeki her sokak "kullanılmış" sayılacağı için her yeni rotayı eler.
-    var diversityWindow = 3
-    /// Aynı sokağı gidip gelerek kullanmanın (çıkmaz sokak sapı) en uzun hâli (metre).
-    var maxRepeatedStretch = 120.0
-
-    // MARK: Ağ
-
-    /// Aynı anda uçan en fazla MKDirections isteği. Hızın asıl sınırı
-    /// `requestPacing`; buradaki 3 yalnızca patlama kredisiyle giden isteklerin
-    /// gecikmesini üst üste bindirir.
-    var maxConcurrentRequests = 3
-    /// Beklemesiz art arda gönderilebilecek istek sayısı (bkz. `RequestPacer`).
-    /// 16: tipik bir üretimin (bir şekil, bir tur, 4–6 bacak) TAMAMI ve arkasından
-    /// bir düzeltme turu daha beklemesiz gider. Kritik olan bu: sıradan üretim
-    /// patlamanın içinde kalırsa süreyi ağ gecikmesi belirler, hız sınırı değil.
-    var requestBurst = 16
-    /// Patlama hakkı bitince ardışık istek başlangıçları arasındaki süre. Kota
-    /// kısıtı: herhangi bir 60 sn'lik pencerede en fazla `requestBurst` + 60/süre
-    /// istek gider; bu toplam (16 + 30 = 46) MapKit'in gözlemlenen throttle
-    /// eşiğinin (~50/dk) altında kalmalı. Patlamayı büyütüp aralığı uzatmak,
-    /// aynı dakikalık toplamı sıradan üretimin lehine dağıtır.
-    var requestPacing: Duration = .seconds(2)
-    /// Bir üretimde GEÇİCİ ağ hatasından en fazla kaç kez toparlanılır.
-    var maxRecoveries = 3
-    /// İlk bekleme; her toparlanmada ikiye katlanır (1 s, 2 s, 4 s). Tek bir cihaz
-    /// tek bir sunucuya istek attığı için jitter eklenmez: dağıtılacak kalabalık yok.
-    var backoffBase: Duration = .seconds(1)
-    /// Throttle'dan toparlanma hakkı: TEK. Throttle penceresi tipik olarak ~1 dk
-    /// sürer; kısa üstel bekleme onu aşamaz. Tek uzun bekleme, patlama kenarındaki
-    /// tekil throttle'ı affeder; ikinci throttle gerçek kota aşımı demektir ve ağ
-    /// işi durdurulup eldeki en iyi adaya düşülür.
-    var maxThrottleRecoveries = 1
-    /// Throttle sonrası tek beklemenin süresi.
-    var throttleBackoff: Duration = .seconds(10)
-    /// Döngü aşamasının süre sınırı: dolunca ne yeni deneme ne de yeni DÜZELTME
-    /// turu başlatılır, yedeğe geçilir. Başlamış bir tur asla yarıda kesilmez.
-    var loopTimeLimit: Duration = .seconds(40)
-    /// Yedek aşamasının kendi süre sınırı. Eskiden yedek aşamada hiç süre
-    /// kontrolü yoktu: döngü aşaması süresini doldurduktan SONRA yedek bir yarım
-    /// dakika daha ekleyebiliyordu. İkisinin toplamı algılanan en kötü süredir.
-    var fallbackTimeLimit: Duration = .seconds(20)
-
-    // MARK: Türetilen bütçe
-
-    /// Bir döngü turunun en kötü maliyeti: her bacak + bir waypoint onarımı (2 bacak).
-    var worstCaseLoopEvaluation: Int { vertexCountRange.upperBound + 2 }
-    /// Git-gel turu: 2 bacak + onarım (2 bacak).
-    var worstCaseFallbackEvaluation: Int { 4 }
-
-    /// Döngü aşamasının istek bütçesi = (deneme × tur + toparlanmada tekrarlanan tur)
-    /// × tur maliyeti. Sabit bir sayı değil, planın kendisinden türer: plan içindeki
-    /// hiçbir iş bütçeye takılıp yarıda kalmaz. Bütçe yalnızca planın dışına taşan
-    /// durumları sınırlar ve her tur, başlamadan önce kalan bütçeye sığıp
-    /// sığmadığına bakar.
-    var loopRequestBudget: Int {
-        (maxLoopAttempts * maxEvaluations + maxRecoveries + maxThrottleRecoveries) * worstCaseLoopEvaluation
-    }
-
-    var fallbackRequestBudget: Int {
-        (fallbackAttempts * maxEvaluations + maxRecoveries + maxThrottleRecoveries) * worstCaseFallbackEvaluation
-    }
-
-    var requestBudget: Int { loopRequestBudget + fallbackRequestBudget }
-
-    /// `n`. toparlanmadan önceki bekleme (n ≥ 1).
-    func backoff(forRecovery n: Int) -> Duration {
-        backoffBase * (1 << max(n - 1, 0))
-    }
-}
-
 /// Son üretimin ölçümleri: testlerde ve hata ayıklamada yakınsamayı görmek için.
 nonisolated struct GenerationStats: Equatable {
     /// Ağa giden istek (throttle yiyenler dahil).
     var requests = 0
-    /// Cache'ten karşılanan bacak.
-    var cachedLegs = 0
     /// Yapılan yarıçap turu (tüm şekiller toplamı).
     var evaluations = 0
     /// Ağa gidilen şekil.
@@ -190,44 +32,6 @@ nonisolated struct GenerationProgress: Equatable {
     var maxAttempts: Int
     /// Döngü bulunamadı, git-gel yedeğine geçildi.
     var isFallback = false
-}
-
-// MARK: - Kalıcı bellek
-
-/// Üretimin oturumlar arasında hatırladıkları.
-///
-/// İkisi de aynı amaca hizmet eder: uygulama yeniden açıldığında üretim sıfırdan
-/// başlamasın. Dolambaç katsayısı ilk yarıçap tahminini tutturur (hız); rota
-/// geçmişi yeni rotanın eskilerden farklı bir yöne açılmasını sağlar (çeşitlilik).
-/// Eskiden yalnızca ilki saklanıyordu, bu yüzden her açılışta ilk rota önceki
-/// oturumunkinin kopyası olabiliyordu.
-protocol GenerationStoring {
-    func loadDetourFactors() -> [String: Double]
-    func saveDetourFactors(_ factors: [String: Double])
-    /// Son rotaların kodlanmış hâli; biçim için bkz. `RouteGenerator.Remembered`.
-    func loadRouteHistory() -> [[Double]]
-    func saveRouteHistory(_ history: [[Double]])
-}
-
-extension UserDefaults: GenerationStoring {
-    private static let detourFactorsKey = "learnedDetourFactors"
-    private static let routeHistoryKey = "recentRouteFootprints"
-
-    func loadDetourFactors() -> [String: Double] {
-        dictionary(forKey: Self.detourFactorsKey) as? [String: Double] ?? [:]
-    }
-
-    func saveDetourFactors(_ factors: [String: Double]) {
-        set(factors, forKey: Self.detourFactorsKey)
-    }
-
-    func loadRouteHistory() -> [[Double]] {
-        array(forKey: Self.routeHistoryKey) as? [[Double]] ?? []
-    }
-
-    func saveRouteHistory(_ history: [[Double]]) {
-        set(history, forKey: Self.routeHistoryKey)
-    }
 }
 
 // MARK: - Üretim motoru
@@ -262,7 +66,7 @@ final class RouteGenerator {
 
     /// Hatırlanan bir rota: yönü (sıradaki rotayı başka yöne açmak için) ve izi
     /// (sıradaki rotanın aynı sokaklara girmediğini doğrulamak için).
-    private struct Remembered {
+    private nonisolated struct Remembered {
         /// Kalıcı biçimde örneklerin seyreltme oranı. İz zaten 10 m'ye yeniden
         /// örneklendiği ve koridor testi 25 m olduğu için 40 m'lik örnekler
         /// sonucu değiştirmez, saklanan veriyi dörtte birine indirir.
@@ -272,33 +76,22 @@ final class RouteGenerator {
         let bearing: Double
         let footprint: RouteFootprint
 
-        init(start: CLLocationCoordinate2D, bearing: Double, footprint: RouteFootprint) {
-            self.start = start
-            self.bearing = bearing
-            self.footprint = footprint
+        /// Saklanan biçim (bkz. `GenerationStoring`).
+        var entry: RouteHistoryEntry {
+            RouteHistoryEntry(
+                start: RoutePoint(start),
+                bearing: bearing,
+                samples: stride(from: 0, to: footprint.samples.count, by: Self.sampleStride)
+                    .map { RoutePoint(footprint.samples[$0]) }
+            )
         }
 
-        /// Kalıcı biçim: [başlangıç enlem, boylam, yön, örnek enlem, örnek boylam, …].
-        /// Düz bir `Double` dizisi olduğu için dönüştürülmeden plist'e yazılır.
-        var encoded: [Double] {
-            var values = [start.latitude, start.longitude, bearing]
-            for index in stride(from: 0, to: footprint.samples.count, by: Self.sampleStride) {
-                values.append(footprint.samples[index].latitude)
-                values.append(footprint.samples[index].longitude)
-            }
-            return values
-        }
-
-        init?(encoded values: [Double]) {
-            // 3 başlık + çift sayıda koordinat bileşeni ⇒ toplam tek sayı.
-            guard values.count >= 7, values.count % 2 == 1 else { return nil }
-            var samples: [CLLocationCoordinate2D] = []
-            for index in stride(from: 3, to: values.count, by: 2) {
-                samples.append(CLLocationCoordinate2D(latitude: values[index], longitude: values[index + 1]))
-            }
-            self.start = CLLocationCoordinate2D(latitude: values[0], longitude: values[1])
-            self.bearing = values[2]
-            self.footprint = RouteFootprint(samples)
+        static func restoring(_ entry: RouteHistoryEntry) -> Remembered {
+            Remembered(
+                start: entry.start.coordinate,
+                bearing: entry.bearing,
+                footprint: RouteFootprint(entry.samples.map(\.coordinate))
+            )
         }
     }
 
@@ -307,6 +100,9 @@ final class RouteGenerator {
     private struct Candidate {
         let route: GeneratedRoute
         let footprint: RouteFootprint
+        /// Eşiklerin ne kadar aşıldığı; kabul edilen adayda 0. Yedekler
+        /// arasından en düşük cezalı olan seçilir.
+        var penalty = 0.0
     }
 
     init(
@@ -318,7 +114,7 @@ final class RouteGenerator {
         self.policy = policy
         self.store = store
         self.detour = DetourEstimate(learnedFactors: store?.loadDetourFactors() ?? [:])
-        self.recentRoutes = Array((store?.loadRouteHistory() ?? []).compactMap(Remembered.init(encoded:)).suffix(Self.historyLimit))
+        self.recentRoutes = (store?.loadRouteHistory() ?? []).suffix(Self.historyLimit).map(Remembered.restoring)
         self.fetcher = LegFetcher(
             provider: provider,
             maxConcurrentRequests: policy.maxConcurrentRequests,
@@ -339,57 +135,49 @@ final class RouteGenerator {
         guard target > 0 else { throw RouteGenerationError.invalidDistance }
         fetcher.trimIfNeeded()
 
-        var run = Run(start: start, target: target, deadline: .now + policy.loopTimeLimit, requestsAtStart: fetcher.requestCount)
+        var run = Run(start: start, target: target, deadline: .now + policy.loopTimeLimit)
+        let requestsAtStart = fetcher.requestCount
         defer {
-            run.stats.requests = fetcher.requestCount - run.requestsAtStart
+            run.stats.requests = fetcher.requestCount - requestsAtStart
             lastStats = run.stats
             save()
         }
 
+        let nearby = recentRoutes.filter { Geo.distance($0.start, start) < sameStartRadius }
         // DETERMİNİSTİK: aynı yerden önceki rotalar varsa temel yön hepsine en uzak
         // yön. RASTGELE: geçmiş yoksa temel yön serbest.
-        let plan = BearingPlanner.leastUsed(avoiding: recentBearings(near: start))
+        let plan = BearingPlanner.leastUsed(avoiding: nearby.map(\.bearing))
         let base = plan?.bearing ?? Double.random(in: 0..<360, using: &random)
         // Sapma payı serbest yayın yarısı kadar açılır (en az `bearingJitter`, en
         // çok `maxBearingJitter`). Tek bir önceki rota varken ters yönde 180°'lik
         // boşluk vardır; sabit ±20° ile hep o boşluğun ortasına çakmak, aynı yerden
         // aynı mesafeyi isteyen kullanıcıya hep aynı rotayı veriyordu.
         let spread = min(max(policy.bearingJitter, (plan?.clearance ?? 180) / 2), policy.maxBearingJitter)
-        let recent = recentFootprints(near: start)
+        let recent = nearby.suffix(policy.diversityWindow).map(\.footprint)
 
         // 1) Döngü denemeleri.
-        run.beginPhase(budget: policy.loopRequestBudget, requestCount: fetcher.requestCount)
-        var attempts = 0
-        var candidates = 0
-        while attempts < policy.maxLoopAttempts, candidates < policy.maxShapeCandidates {
+        var schedule = ShapeSchedule(maxAttempts: policy.maxLoopAttempts, maxCandidates: policy.maxShapeCandidates)
+        while schedule.hasNext {
             try Task.checkCancellation()
             guard run.networkFailure == nil, ContinuousClock.now < run.deadline else { break }
 
             let jitter = Double.random(in: -spread...spread, using: &random)
-            let bearing = BearingPlanner.bearing(forAttempt: candidates, base: base, jitter: jitter)
+            let bearing = BearingPlanner.bearing(forAttempt: schedule.nextCandidate(), base: base, jitter: jitter)
             let shape = LoopShape.loop(openingBearing: bearing, vertexCountRange: policy.vertexCountRange, using: &random)
             let radius = shape.initialRadius(target: target, detourFactor: detour.factor(near: start, bearing: bearing))
-            candidates += 1
 
             // BEDAVA ELEME: iskelet son rotaların koridorundan geçiyorsa bu şekil
             // neredeyse kopya çıkar. Deneme hakkı harcanmaz — ağa gidilmediği için
-            // harcanacak bir şey yok; yalnızca sıradaki yöne geçilir.
-            //
-            // Eleme yalnızca BOŞLUKTAN yer: kalan aday hakkı kalan deneme hakkına
-            // inince kapanır, yani `maxLoopAttempts` gerçek deneme her hâlükârda
-            // yapılır. Aksi halde çevresindeki her yönü kullanmış bir kullanıcıda
-            // tüm adaylar elenir, döngü aşaması ağa hiç gitmeden biter ve hafifçe
-            // örtüşen bir döngü yerine aynı yolu iki kez yürüten git-gel rotası
-            // verilirdi — çeşitlilik adına daha tekrarlı bir sonuç.
-            if policy.maxShapeCandidates - candidates >= policy.maxLoopAttempts - attempts,
-               isNearDuplicate(shape, radius: radius, start: start, recent: recent) {
+            // harcanacak bir şey yok; yalnızca sıradaki yöne geçilir. Elemenin
+            // neden yalnızca boşluktan yediği: bkz. `ShapeSchedule`.
+            if schedule.canSkip, isNearDuplicate(shape, radius: radius, start: start, recent: recent) {
                 run.stats.skippedShapes += 1
                 continue
             }
 
-            attempts += 1
+            let attempt = schedule.recordAttempt()
             run.stats.attempts += 1
-            onProgress(GenerationProgress(attempt: attempts, maxAttempts: policy.maxLoopAttempts))
+            onProgress(GenerationProgress(attempt: attempt, maxAttempts: policy.maxLoopAttempts))
 
             let outcome = try await fit(shape, radius: radius, kind: .loop, run: &run) { [self] route, footprint in
                 judge(route, footprint: footprint, start: start, recent: recent)
@@ -401,13 +189,10 @@ final class RouteGenerator {
         }
 
         // 2) Eşiklere en yakın döngü: çoğunlukla yalnızca örtüşme yüzünden elenmiş bir aday.
-        if let relaxed = run.relaxed {
-            return remember(Candidate(route: relaxed.route, footprint: relaxed.footprint))
-        }
+        if let relaxed = run.relaxed { return remember(relaxed) }
 
         // 3) Git-gel: iki bacak, gevşek tolerans. İlk kullanımda (geçmiş yokken)
         // döngü çıkmasa bile kullanıcı "rota bulunamadı" görmez.
-        run.beginPhase(budget: policy.fallbackRequestBudget, requestCount: fetcher.requestCount)
         run.deadline = .now + policy.fallbackTimeLimit
         for attempt in 0..<policy.fallbackAttempts {
             try Task.checkCancellation()
@@ -487,7 +272,7 @@ final class RouteGenerator {
                 let distance = legs.reduce(0) { $0 + $1.distance }
                 solver.record(radius: radius, distance: distance)
                 detour.observe(
-                    distance / straightPerimeter([run.start] + waypoints),
+                    distance / Geo.length(of: [run.start] + waypoints + [run.start]),
                     at: run.start,
                     bearing: shape.openingBearing
                 )
@@ -501,14 +286,15 @@ final class RouteGenerator {
                     kind: kind,
                     bearing: shape.openingBearing
                 )
-                let footprint = RouteFootprint(Geo.joinedCoordinates(of: route.polylines))
+                var candidate = Candidate(route: route, footprint: RouteFootprint(Geo.joinedCoordinates(of: route.polylines)))
 
-                switch verdict(route, footprint) {
+                switch verdict(route, candidate.footprint) {
                 case .accept:
-                    result.accepted = Candidate(route: route, footprint: footprint)
+                    result.accepted = candidate
                     return result
                 case .relaxed(let penalty) where penalty < result.relaxed?.penalty ?? .infinity:
-                    result.relaxed = (route, footprint, penalty)
+                    candidate.penalty = penalty
+                    result.relaxed = candidate
                 case .relaxed, .reject:
                     continue
                 }
@@ -522,27 +308,21 @@ final class RouteGenerator {
         /// Yargının kabul ettiği aday. Doluysa yakınsama erken bitmiştir.
         var accepted: Candidate?
         /// Eşiklerin dışında kalan en düşük cezalı aday.
-        var relaxed: (route: GeneratedRoute, footprint: RouteFootprint, penalty: Double)?
+        var relaxed: Candidate?
     }
 
     private enum Evaluation {
         case route([MKRoute])
         /// Yürünemeyen waypoint'lerin `waypoints` içindeki sıraları.
         case unusable([Int])
-        /// Bütçe ya da toparlanma hakkı bitti; bu şekil bırakılır.
+        /// Toparlanma hakkı bitti; bu şekil bırakılır.
         case aborted
     }
 
     /// Verilen waypoint'lerle döngünün bütün bacaklarını çeker ve doğrular.
     private func evaluate(_ waypoints: [CLLocationCoordinate2D], run: inout Run) async throws -> Evaluation {
         let ring = [run.start] + waypoints
-
-        // Maliyet istekten ÖNCE bilinir: tur (olası onarımı dahil) kalan bütçeye
-        // sığmıyorsa hiç başlatılmaz. Yarıda kesilen bir tur boşa harcanmış istektir.
-        let cost = fetcher.missingCount(around: ring)
-        guard cost + 2 <= run.remainingBudget(requestCount: fetcher.requestCount) else { return .aborted }
         run.stats.evaluations += 1
-        run.stats.cachedLegs += ring.count - cost
 
         guard try await prefetch(ring, run: &run) else { return .aborted }
 
@@ -570,34 +350,25 @@ final class RouteGenerator {
 
     /// Eksik bacakları çeker. Hatada o turun kuyruktaki istekleri iptal edilir,
     /// beklenir ve tur KALDIĞI YERDEN sürer: gelmiş bacaklar cache'te olduğu için
-    /// yalnızca eksikler yeniden istenir. Geçici ağ hatasında üstel bekleme ile
-    /// `maxRecoveries` kez denenir; throttle'da yalnızca tek uzun bekleme hakkı
-    /// vardır (`throttleBackoff`), çünkü throttle penceresi kısa beklemelerle
-    /// aşılamaz. Haklar bitince ağ işi durur ve eldeki en iyi sonuca düşülür.
+    /// yalnızca eksikler yeniden istenir. Her hata türünün kendi toparlanma hakkı
+    /// ve beklemesi vardır (bkz. `GenerationPolicy.recoveryLimit`): geçici ağ
+    /// hatasında üstel bekleme, throttle'da tek uzun bekleme — throttle penceresi
+    /// kısa beklemelerle aşılamaz. Haklar bitince ağ işi durur ve eldeki en iyi
+    /// sonuca düşülür.
     private func prefetch(_ ring: [CLLocationCoordinate2D], run: inout Run) async throws -> Bool {
         while true {
             do {
                 try await fetcher.prefetch(around: ring)
                 return true
             } catch let failure as DirectionsFailure {
-                switch failure {
-                case .throttled:
-                    guard run.throttleRecoveries < policy.maxThrottleRecoveries else {
-                        run.networkFailure = .rateLimited
-                        return false
-                    }
-                    run.throttleRecoveries += 1
-                    run.stats.recoveries += 1
-                    try await Task.sleep(for: policy.throttleBackoff)
-                case .unavailable:
-                    guard run.networkRecoveries < policy.maxRecoveries else {
-                        run.networkFailure = .networkUnavailable
-                        return false
-                    }
-                    run.networkRecoveries += 1
-                    run.stats.recoveries += 1
-                    try await Task.sleep(for: policy.backoff(forRecovery: run.networkRecoveries))
+                let recovery = run.recoveries[failure, default: 0] + 1
+                guard recovery <= policy.recoveryLimit(for: failure) else {
+                    run.networkFailure = RouteGenerationError(failure)
+                    return false
                 }
+                run.recoveries[failure] = recovery
+                run.stats.recoveries += 1
+                try await Task.sleep(for: policy.backoff(forRecovery: recovery, after: failure))
             }
         }
     }
@@ -667,22 +438,7 @@ final class RouteGenerator {
     private func save() {
         guard let store else { return }
         store.saveDetourFactors(detour.learnedFactors)
-        store.saveRouteHistory(recentRoutes.map(\.encoded))
-    }
-
-    private func recentBearings(near start: CLLocationCoordinate2D) -> [Double] {
-        recentRoutes.filter { Geo.distance($0.start, start) < sameStartRadius }.map(\.bearing)
-    }
-
-    private func recentFootprints(near start: CLLocationCoordinate2D) -> [RouteFootprint] {
-        recentRoutes
-            .filter { Geo.distance($0.start, start) < sameStartRadius }
-            .suffix(policy.diversityWindow)
-            .map(\.footprint)
-    }
-
-    private func straightPerimeter(_ ring: [CLLocationCoordinate2D]) -> Double {
-        ring.indices.reduce(0) { $0 + Geo.distance(ring[$1], ring[($1 + 1) % ring.count]) }
+        store.saveRouteHistory(recentRoutes.map(\.entry))
     }
 
     // MARK: Çağrı defteri
@@ -694,32 +450,11 @@ final class RouteGenerator {
         let target: Double
         /// Aşamanın bitiş anı; aşama değişince (döngü → yedek) yenilenir.
         var deadline: ContinuousClock.Instant
-        let requestsAtStart: Int
         var stats = GenerationStats()
-        /// Geçici ağ hatasından toparlanma sayısı (sınır: `maxRecoveries`).
-        var networkRecoveries = 0
-        /// Throttle'dan toparlanma sayısı (sınır: `maxThrottleRecoveries`).
-        var throttleRecoveries = 0
+        /// Hata türü başına toparlanma sayısı (sınır: `GenerationPolicy.recoveryLimit`).
+        var recoveries: [DirectionsFailure: Int] = [:]
         /// Toparlanma hakkı bitince ağ işi durur; sebep burada.
         var networkFailure: RouteGenerationError?
-        var relaxed: (route: GeneratedRoute, footprint: RouteFootprint, penalty: Double)?
-        private var phaseBudget = 0
-        private var phaseStart = 0
-
-        init(start: CLLocationCoordinate2D, target: Double, deadline: ContinuousClock.Instant, requestsAtStart: Int) {
-            self.start = start
-            self.target = target
-            self.deadline = deadline
-            self.requestsAtStart = requestsAtStart
-        }
-
-        mutating func beginPhase(budget: Int, requestCount: Int) {
-            phaseBudget = budget
-            phaseStart = requestCount
-        }
-
-        func remainingBudget(requestCount: Int) -> Int {
-            phaseBudget - (requestCount - phaseStart)
-        }
+        var relaxed: Candidate?
     }
 }

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 import MapKit
 import SwiftData
 
@@ -13,8 +14,8 @@ import SwiftData
 /// üstte, kalan mesafeyi ve ilerlemeyi altta gösterir. Rota takibi ve yeniden
 /// rota `NavigationViewModel`'dedir; bu görünüm yalnızca konumları iletir.
 ///
-/// Koşu boyunca kullanıcının geçtiği yol kaydedilir; "End route" bu yolu bir
-/// `RunSession` olarak saklar.
+/// Koşu boyunca kullanıcının geçtiği yol kaydedilir; "End route" (ya da bitişe
+/// varınca "Save run") bu yolu bir `RunSession` olarak saklar.
 struct NavigationView: View {
     /// Takip edilecek yol — üretilmiş bir rota ya da kaydedilmiş bir koşu yolu.
     let route: any FollowablePath
@@ -36,24 +37,31 @@ struct NavigationView: View {
     /// ne de yol kaydedilir; yoksa rotaya gitmek için yürünen mesafe koşuya
     /// yazılırdı.
     @State private var hasStarted = false
+    /// Rotanın bitişine varıldığı an. Koşu burada biter: süre donar, yol kaydı
+    /// durur ve alt panel özet + "Save run"a döner. Kullanıcı kaydetmeden önce
+    /// yürümeye devam etse bile koşuya yazılmaz.
+    @State private var finishedAt: Date?
     /// Kilit ekranı ve Dynamic Island'daki talimat + koşu kartı.
     @State private var liveActivity = RunLiveActivity()
 
     var body: some View {
         Map(position: $camera.position) {
             UserAnnotation()
-            // Yeniden rota sonrası çizgiler değiştiği için rota değil,
-            // view model'in güncel çizgileri çizilir.
-            // Döngü rotasında çizgi tek başına hangi yöne koşulacağını
-            // göstermez; yönü oklar taşır. Oklar view model'de hesaplanmıştır:
-            // ekran her konum güncellemesinde yeniden çizilir.
+            // Geride kalan kısım sönük çizilir, önde kalan kısım yeşil ve
+            // oklu: haritada tek bir çizgi göze çarpar, o da gidilecek yol.
+            // Gerçekte koşulan yol ayrıca çizilmez — rotanın üstüne binen
+            // ikinci bir çizgi haritayı kalabalıklaştırıyordu. Oklar view
+            // model'de bir kez hesaplanır; ekran her kamera karesinde yeniden
+            // çizilir.
+            if let completed = navigation.completedPolyline {
+                MapPolyline(completed)
+                    .stroke(Color.gray.opacity(0.55), style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
+            }
             RouteOverlay(
-                polylines: navigation.polylines,
+                polylines: navigation.upcomingPolyline.map { [$0] } ?? [],
                 mapHeading: mapHeading,
-                arrows: navigation.arrows
+                arrows: navigation.upcomingArrows
             )
-            // Gerçekte koşulan yol, planlanan rotanın üstünde ayrı renkte.
-            RunRouteOverlay(segments: locationManager.pathSegments)
         }
         .onMapCameraChange(frequency: .continuous) { context in
             mapHeading = context.camera.heading
@@ -64,65 +72,44 @@ struct NavigationView: View {
             MapScaleView()          // Shows distance/scale legend during zoom
         }
         .safeAreaInset(edge: .top) {
-            instructionBanner
+            RunTopBanner { bannerContent }
         }
         .safeAreaInset(edge: .bottom) {
             statsBar
         }
-        .onAppear {
-            // Takip burada başlamaz: kullanıcı rotaya yaklaşınca view model
-            // kendiliğinden `navigating`e geçer, koşu o an başlar.
-            // `LocationManager` konumları takip kapalıyken de yayınladığı için
-            // yaklaşma yine de izlenebilir.
-            navigation.start(path: followedPath)
-            // Arka plan konumu rotaya yürürken de açıktır: kullanıcı telefonu
-            // cebine koyup rotaya yürüyebilir, koşu yine kendiliğinden başlar.
-            locationManager.setRunsInBackground(true)
-            liveActivity.start(kind: .navigation, state: activityState())
-            // Live Activity'deki "End" düğmesi alttaki "End route" ile aynı
-            // işi yapar (bkz. `EndRunIntent`).
-            RunActivityBridge.endRun = { endRun() }
-        }
-        .onDisappear {
-            navigation.stop()
-            locationManager.stopTracking()
-            locationManager.setRunsInBackground(false)
-            // Kaydetmeden çıkıldıysa etkinlik hemen kapanır; kaydedildiyse
-            // `endRun` onu zaten son hâliyle kapattı.
-            liveActivity.end()
-            RunActivityBridge.endRun = nil
-        }
-        .onChange(of: locationManager.userLocation) { _, newLocation in
-            guard let newLocation else { return }
-            navigation.update(location: newLocation)
-            if !hasStarted, navigation.state == .navigating { beginRun() }
-            camera.follow(location: newLocation, heading: locationManager.travelDirection)
-            liveActivity.update(activityState())
-        }
-        .onChange(of: navigation.state) { _, _ in
+        // Arka plan konumu rotaya yürürken de açıktır: kullanıcı telefonu
+        // cebine koyup rotaya yürüyebilir, koşu yine kendiliğinden başlar.
+        .runScreenLifecycle(
+            locationManager: locationManager,
+            camera: camera,
+            liveActivity: liveActivity,
+            kind: .navigation,
+            activityState: { activityState() },
+            endRun: { endRun() },
+            onStart: {
+                // Takip burada başlamaz: kullanıcı rotaya yaklaşınca view model
+                // kendiliğinden `navigating`e geçer, koşu o an başlar.
+                // `LocationManager` konumları takip kapalıyken de yayınladığı
+                // için yaklaşma yine de izlenebilir.
+                navigation.start(path: followedPath)
+                // Navigasyonda ekran bakılmak için açıktır; kendiliğinden
+                // kararıp kilitlenmesin. Yalnızca bu ekran açıkken.
+                UIApplication.shared.isIdleTimerDisabled = true
+            },
+            onLocation: { location in
+                navigation.update(location: location)
+                if !hasStarted, navigation.state == .navigating { beginRun() }
+            },
+            onStop: {
+                navigation.stop()
+                UIApplication.shared.isIdleTimerDisabled = false
+            }
+        )
+        .onChange(of: navigation.state) { _, state in
+            if state == .finished { finishRun() }
             // Yeniden rota konumdan bağımsız, ağ isteği bitince değişir.
             liveActivity.update(activityState())
         }
-        .onChange(of: locationManager.userHeading) { _, _ in
-            // Kullanıcı dururken dönerse harita yine de onunla dönsün.
-            camera.follow(location: locationManager.userLocation, heading: locationManager.travelDirection)
-        }
-    }
-
-    /// Ekranın tek gezinme öğesi: navigasyon tam ekran açıldığı için gezinme
-    /// çubuğu yoktur, geri dönüş bu düğmeyle olur. Koşuyu KAYDETMEZ — kaydeden
-    /// düğme alttaki "End route".
-    private var backButton: some View {
-        Button {
-            dismiss()
-        } label: {
-            Image(systemName: "chevron.left")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(.primary)
-                .frame(width: 38, height: 38)
-        }
-        .glassVisual(.regular, in: .circle)
-        .accessibilityLabel("Back")
     }
 
     /// Gerçekte takip edilen yol: ters yön seçildiyse rotanın ters çevrilmiş hâli.
@@ -130,23 +117,7 @@ struct NavigationView: View {
         isReversed ? route.reversed() : route
     }
 
-    /// Sıradaki manevrayı ya da navigasyonun genel durumunu gösteren üst şerit;
-    /// geri düğmesini de o taşır.
-    private var instructionBanner: some View {
-        HStack(spacing: 12) {
-            backButton
-            bannerContent
-                .frame(maxWidth: .infinity)
-            // Görünmez eş: metin geri düğmesinin yanında değil, şeridin
-            // ortasında dursun.
-            backButton.hidden()
-        }
-        .padding(14)
-        .glassVisual(.regular, in: .rect(cornerRadius: 26, style: .continuous))
-        .padding(.horizontal, Metrics.gutter)
-        .padding(.top, 6)
-    }
-
+    /// Sıradaki manevrayı ya da navigasyonun genel durumunu gösteren üst şerit içeriği.
     @ViewBuilder
     private var bannerContent: some View {
         VStack(spacing: 4) {
@@ -157,7 +128,7 @@ struct NavigationView: View {
                 // Rotaya olan uzaklık, kullanıcının doğru yöne gidip gitmediğini
                 // anlaması için canlı gösterilir.
                 if let distanceToRoute = navigation.distanceToRoute {
-                    Text("\(formatted(meters: distanceToRoute)) away — starts automatically")
+                    Text("\(Self.formatted(guidance: distanceToRoute)) away — starts automatically")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -169,16 +140,27 @@ struct NavigationView: View {
             case .rerouting:
                 Label("Rerouting…", systemImage: "arrow.triangle.2.circlepath")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondaryGreen)
+                    .foregroundStyle(.primaryBlue)
             case .finished:
                 Label("Run complete", systemImage: "flag.checkered")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondaryGreen)
+            case .navigating where navigation.isOffRoute:
+                // Yeniden rota birkaç güncelleme sonra gelir; o zamana kadar
+                // koşucu rotadan çıktığını buradan anlar ve geri dönebilir.
+                Label("Off route", systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primaryBlue)
+                if let distanceToRoute = navigation.distanceToRoute {
+                    Text("\(Self.formatted(guidance: distanceToRoute)) from the route")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             default:
                 Text(navigation.currentInstruction)
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
                     .multilineTextAlignment(.center)
-                Text(formatted(meters: navigation.distanceToNextManeuver))
+                Text(Self.formatted(guidance: navigation.distanceToNextManeuver))
                     .font(.display(15, weight: .medium))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
@@ -186,75 +168,94 @@ struct NavigationView: View {
         }
     }
 
-    /// Kalan mesafe, ilerleme çubuğu ve koşuyu bitirme düğmesini taşıyan alt şerit.
+    /// Alt panel: koşu sürerken canlı sayılar, bitişe varınca koşunun özeti.
     private var statsBar: some View {
-        VStack(spacing: 14) {
-            ProgressBar(value: navigation.progressFraction, height: 6)
-
-            HStack(alignment: .center, spacing: 14) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(formatted(meters: navigation.remainingDistance))
-                        .font(.display(24, weight: .bold))
-                        .monospacedDigit()
-                    Text("remaining")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Divider().frame(height: 34).overlay(Color.primary.opacity(0.12))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    // Süre koşu başlayana kadar işlemez: rotaya yürürken geçen
-                    // dakikalar koşunun temposunu bozardı.
-                    if hasStarted {
-                        Text(startedAt, style: .timer)
-                            .font(.display(24, weight: .bold))
-                            .monospacedDigit()
-                    } else {
-                        Text("--:--")
-                            .font(.display(24, weight: .bold))
-                            .foregroundStyle(.secondary)
-                    }
-                    Text(hasStarted ? "elapsed" : "not started")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 0)
-
-                // Takip kapatılınca kullanıcı haritayı serbestçe inceleyebilir.
-                Button {
-                    camera.isFollowing.toggle()
-                } label: {
-                    Image(systemName: camera.isFollowing ? "location.fill" : "location.slash")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(camera.isFollowing ? .secondaryGreen : .secondary)
-                        .frame(width: 38, height: 38)
-                }
-                .glassVisual(.regular, in: .circle)
-                .accessibilityLabel(camera.isFollowing ? "Stop following" : "Follow me")
-            }
-
-            // Koşu başlamadan önce bitirilecek bir şey yok: düğme o hâlde
-            // ikincil kalır, kaydedilen koşuyu sonlandıran eylemle aynı
-            // ağırlıkta görünmesin.
-            if hasStarted {
-                Button { endRun() } label: {
-                    Label("End route", systemImage: "stop.fill")
-                        .foregroundStyle(.white)
-                }
-                .buttonStyle(PrimaryButtonStyle())
+        RunBottomPanel {
+            if let finishedAt {
+                finishSummary(endedAt: finishedAt)
             } else {
-                Button { endRun() } label: {
-                    Label("Cancel", systemImage: "xmark")
-                }
-                .buttonStyle(SecondaryButtonStyle())
+                liveStats
             }
         }
-        .padding(16)
-        .glassVisual(.regular, in: .rect(cornerRadius: 26, style: .continuous))
-        .padding(.horizontal, Metrics.gutter)
-        .padding(.bottom, 6)
+    }
+
+    /// Kalan mesafe, süre, tempo, ilerleme çubuğu ve koşuyu bitirme düğmesi.
+    @ViewBuilder
+    private var liveStats: some View {
+        ProgressBar(value: navigation.progressFraction, height: 6)
+
+        HStack(alignment: .center, spacing: 12) {
+            RunStat(label: "remaining") {
+                Text(formatted(meters: navigation.remainingDistance))
+            }
+
+            RunStatDivider()
+
+            // Süre koşu başlayana kadar işlemez: rotaya yürürken geçen
+            // dakikalar koşunun temposunu bozardı.
+            RunStat(label: hasStarted ? "elapsed" : "not started") {
+                if hasStarted {
+                    Text(startedAt, style: .timer)
+                } else {
+                    Text("--:--").foregroundStyle(.secondary)
+                }
+            }
+
+            RunStatDivider()
+
+            RunStat(label: "avg pace") {
+                Text(paceText(until: .now))
+            }
+
+            Spacer(minLength: 0)
+
+            FollowToggle(camera: camera, tint: .secondaryGreen)
+        }
+
+        // Koşu başlamadan önce bitirilecek bir şey yok: düğme o hâlde
+        // ikincil kalır, kaydedilen koşuyu sonlandıran eylemle aynı
+        // ağırlıkta görünmesin.
+        if hasStarted {
+            Button { endRun() } label: {
+                Label("End route", systemImage: "stop.fill")
+            }
+            .buttonStyle(PrimaryButtonStyle())
+        } else {
+            Button { endRun() } label: {
+                Label("Cancel", systemImage: "xmark")
+            }
+            .buttonStyle(SecondaryButtonStyle())
+        }
+    }
+
+    /// Bitişe varılmış koşunun özeti ve kaydetme düğmesi. Sayılar varış anında
+    /// donmuştur.
+    @ViewBuilder
+    private func finishSummary(endedAt: Date) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            RunStat(label: "distance") {
+                Text(formatted(meters: distanceRun))
+            }
+
+            RunStatDivider()
+
+            RunStat(label: "time") {
+                Text(Self.formatted(duration: endedAt.timeIntervalSince(startedAt)))
+            }
+
+            RunStatDivider()
+
+            RunStat(label: "avg pace") {
+                Text(paceText(until: endedAt))
+            }
+
+            Spacer(minLength: 0)
+        }
+
+        Button { endRun() } label: {
+            Label("Save run", systemImage: "checkmark")
+        }
+        .buttonStyle(PrimaryButtonStyle())
     }
 
     /// Kullanıcı rotaya yaklaştı: koşu bu an başlar. Süre ve yol kaydı buradan
@@ -263,6 +264,14 @@ struct NavigationView: View {
         hasStarted = true
         startedAt = .now
         locationManager.startTracking()
+    }
+
+    /// Bitişe varıldı: süre donar ve yol kaydı durur. Koşu henüz KAYDEDİLMEZ;
+    /// kullanıcı özeti görüp "Save run"a basar (ya da kilit ekranından "End").
+    private func finishRun() {
+        guard hasStarted, finishedAt == nil else { return }
+        finishedAt = .now
+        locationManager.stopTracking()
     }
 
     /// Koşuyu bitirir: geçilen yolu bir `RunSession` ve yeni bir `TraveledPath`
@@ -279,33 +288,31 @@ struct NavigationView: View {
         }
 
         liveActivity.end(finalState: activityState(phase: .ended))
-
-        let session = RunSession(
+        RunSession.saveFinishedRun(
             startedAt: startedAt,
+            endedAt: finishedAt ?? .now,
             segments: locationManager.pathSegments,
             // Planlanan mesafe rotanın tamamı değil kullanıcının katıldığı
             // yerden bitişe olan kısmıdır; ortadan başlayan koşu, hedefini
             // tutturamamış gibi görünmemeli.
-            plannedDistance: navigation.journeyDistance
+            plannedDistance: navigation.journeyDistance,
+            pathName: "Route run",
+            user: users.first,
+            in: modelContext
         )
-        let path = TraveledPath(
-            name: "Route run — \(startedAt.formatted(date: .abbreviated, time: .shortened))",
-            segments: session.segments
-        )
-        session.traveledPath = path
-        session.user = users.first
-        modelContext.insert(session)
-        // Kilit ekranından bitirilen koşuda uygulama arka plandadır ve otomatik
-        // kaydı beklemeden askıya alınabilir; kayıt hemen yazılır.
-        try? modelContext.save()
         navigation.stop()
         dismiss()
+    }
+
+    /// Şu ana kadar koşulan mesafe (metre).
+    private var distanceRun: Double {
+        RunSession.distance(of: locationManager.pathSegments)
     }
 
     /// Live Activity'de gösterilen talimat ve koşu bilgileri. Aşama verilmezse
     /// navigasyonun durumundan çıkarılır.
     private func activityState(phase: RunActivityAttributes.Phase? = nil) -> RunLiveActivity.State {
-        let distance = RunSession.distance(of: locationManager.pathSegments)
+        let distance = distanceRun
         let phase = phase ?? {
             switch navigation.state {
             case .idle, .waitingToStart: .waitingToStart
@@ -314,12 +321,14 @@ struct NavigationView: View {
             case .finished: .finished
             }
         }()
+        // Bitişe varıldıysa kilit ekranındaki sayaç da o anda donar.
+        let endedAt = finishedAt ?? .now
         return RunLiveActivity.State(
             phase: phase,
             startedAt: hasStarted ? startedAt : nil,
-            finalDuration: phase == .ended ? Date.now.timeIntervalSince(startedAt) : nil,
+            finalDuration: phase == .ended || finishedAt != nil ? endedAt.timeIntervalSince(startedAt) : nil,
             distance: distance,
-            secondsPerKilometer: hasStarted ? RunLiveActivity.pace(distance: distance, since: startedAt) : nil,
+            secondsPerKilometer: hasStarted ? RunLiveActivity.pace(distance: distance, since: startedAt, until: endedAt) : nil,
             instruction: navigation.currentInstruction,
             distanceToManeuver: navigation.distanceToNextManeuver,
             progress: navigation.progressFraction,
@@ -327,9 +336,33 @@ struct NavigationView: View {
         )
     }
 
-    /// Mesafeyi sistemin varsayılan birimiyle yazar.
+    /// Ortalama tempo, dakika:saniye / km. Anlamlı mesafe koşulmadıysa ya da
+    /// tempo bir saati aşıyorsa (yürüyüş, uzun duraklama) boş.
+    private func paceText(until end: Date) -> String {
+        guard hasStarted,
+              let pace = RunLiveActivity.pace(distance: distanceRun, since: startedAt, until: end),
+              pace < 3600 else { return "--:--" }
+        return pace.mmss
+    }
+
+    /// Koşu istatistiği olarak mesafe: iki ondalık (ör. "3.42 km").
     private func formatted(meters: Double) -> String {
         Measurement(value: meters, unit: UnitLength.meters)
             .formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(2))))
+    }
+
+    /// Yol tarifindeki mesafe: iki anlamlı basamak ("150 m", "1.4 km"). Ondalıklı
+    /// metre okunmuyor, her GPS güncellemesinde son basamak titriyordu; iki
+    /// basamak dönüşe yaklaştıkça hâlâ yeterince hassas.
+    static func formatted(guidance meters: Double) -> String {
+        Measurement(value: meters, unit: UnitLength.meters)
+            .formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.significantDigits(1...2))))
+    }
+
+    /// Süre: bir saatin altında "12:34", üstünde "1:02:03".
+    private static func formatted(duration seconds: TimeInterval) -> String {
+        Duration.seconds(seconds).formatted(
+            .time(pattern: seconds < 3600 ? .minuteSecond : .hourMinuteSecond)
+        )
     }
 }

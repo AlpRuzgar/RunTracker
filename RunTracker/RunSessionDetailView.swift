@@ -130,7 +130,6 @@ struct RunSessionDetailView: View {
             isNavigating = true
         } label: {
             Label("Run this path again", systemImage: "arrow.trianglehead.counterclockwise")
-                .foregroundStyle(.white)
         }
         .buttonStyle(PrimaryButtonStyle())
         .fullScreenCover(isPresented: $isNavigating) {

@@ -10,9 +10,9 @@ import MapKit
 import CoreLocation
 @testable import RunTracker
 
-// Rotaya katılma, başlama eşiği ve ters yön. Hiçbiri ağa dokunmaz: talimatsız
-// bir yol verildiği için MapKit'e yalnızca yeniden rota çekerken gidilir, bu
-// testlerde ise kullanıcı rotanın dışına hiç çıkmaz.
+// Rotaya katılma, başlama eşiği, yeniden rota ve ters yön. Hiçbiri ağa
+// dokunmaz: talimatsız bir yol verildiği için MapKit'e yalnızca yeniden rota
+// çekerken gidilir, o testlerde de ağın yerini sahtesi alır.
 
 private let origin = CLLocationCoordinate2D(latitude: 41.0, longitude: 29.0)
 
@@ -58,6 +58,18 @@ private func location(_ coordinate: CLLocationCoordinate2D, accuracy: Double = 5
         speed: 0,
         timestamp: .now
     )
+}
+
+/// Bağlantı rotası isteyen, bir süre bekleyip "yol yok" cevabı veren sahte ağ.
+@MainActor
+private final class SlowDirections: DirectionsProviding {
+    private(set) var requestCount = 0
+
+    func walkingRoute(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) async throws -> MKRoute? {
+        requestCount += 1
+        try await Task.sleep(for: .milliseconds(20))
+        return nil
+    }
 }
 
 /// Kare döngünün kenar uzunluğu düzlem yaklaşımıyla birkaç metre oynayabilir.
@@ -166,6 +178,106 @@ struct NavigationEntryTests {
 
         #expect(navigation.state == .finished)
         #expect(navigation.progressFraction > 0.99)
+    }
+}
+
+// MARK: - Yeniden rota
+
+@MainActor
+struct NavigationRerouteTests {
+
+    /// Rotadan çıkışı doğrulayan güncellemeler: rotanın 100 m dışı.
+    private func leaveRoute(_ navigation: NavigationViewModel) {
+        for _ in 0..<navigation.offRouteConfirmationCount {
+            navigation.update(location: location(point(east: 200, north: -100)))
+        }
+    }
+
+    @Test func confirmedDetourRequestsAConnectorAndFallsBackWithoutOne() async throws {
+        let network = SlowDirections()
+        let navigation = NavigationViewModel(directions: network)
+        navigation.start(path: squareLoop())
+        navigation.update(location: location(point(east: 0, north: 0)))
+
+        leaveRoute(navigation)
+        #expect(navigation.state == .rerouting)
+
+        // Bağlantı rotası yok: eski rotayla takibe dönülür.
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(network.requestCount == 1)
+        #expect(navigation.state == .navigating)
+    }
+
+    /// Navigasyon durdurulduktan sonra dönen cevap, durdurulmuş navigasyonu
+    /// yeniden `navigating`e döndürmez.
+    @Test func stoppingDuringRerouteDiscardsTheLateAnswer() async throws {
+        let navigation = NavigationViewModel(directions: SlowDirections())
+        navigation.start(path: squareLoop())
+        navigation.update(location: location(point(east: 0, north: 0)))
+        leaveRoute(navigation)
+        #expect(navigation.state == .rerouting)
+
+        navigation.stop()
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(navigation.state == .idle)
+    }
+}
+
+// MARK: - Rota çizimi
+
+@MainActor
+struct NavigationDrawingTests {
+
+    private func length(_ polyline: MKPolyline?) -> Double {
+        polyline.map { Geo.length(of: Geo.coordinates(of: $0)) } ?? 0
+    }
+
+    @Test func wholeRouteIsUpcomingBeforeTheRunStarts() {
+        let navigation = NavigationViewModel()
+        navigation.start(path: squareLoop())
+
+        #expect(navigation.completedPolyline == nil)
+        #expect(abs(length(navigation.upcomingPolyline) - 1600) < tolerance)
+    }
+
+    @Test func routeSplitsAtTheRunnersPosition() {
+        let navigation = NavigationViewModel()
+        navigation.start(path: squareLoop())
+
+        // İkinci kenarın ortasından katılır: 600 m geride, 1000 m önde.
+        navigation.update(location: location(point(east: 400, north: 200)))
+
+        #expect(abs(length(navigation.completedPolyline) - 600) < tolerance)
+        #expect(abs(length(navigation.upcomingPolyline) - 1000) < tolerance)
+    }
+
+    @Test func arrowsBehindTheRunnerAreHidden() {
+        let navigation = NavigationViewModel()
+        let loop = squareLoop()
+        navigation.start(path: loop)
+        let all = RouteArrow.along(loop.polylines)
+        #expect(navigation.upcomingArrows.count == all.count)
+
+        navigation.update(location: location(point(east: 400, north: 200)))
+
+        #expect(!navigation.upcomingArrows.isEmpty)
+        #expect(navigation.upcomingArrows.count < all.count)
+        #expect(navigation.upcomingArrows.allSatisfy { $0.distance > 600 - tolerance })
+    }
+
+    /// Rotadan çıkış, yeniden rotayı bekletmeden hemen görünür; geri dönünce kalkar.
+    @Test func offRouteShowsImmediatelyAndClearsOnReturn() {
+        let navigation = NavigationViewModel()
+        navigation.start(path: squareLoop())
+        navigation.update(location: location(point(east: 0, north: 0)))
+
+        navigation.update(location: location(point(east: 200, north: -100)))
+        #expect(navigation.isOffRoute)
+        #expect(navigation.state == .navigating)
+
+        navigation.update(location: location(point(east: 200, north: 0)))
+        #expect(!navigation.isOffRoute)
     }
 }
 

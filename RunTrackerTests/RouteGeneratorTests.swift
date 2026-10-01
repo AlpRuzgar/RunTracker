@@ -68,12 +68,12 @@ private final class FakeDirections: DirectionsProviding {
 /// Bellekte yaşayan sahte kalıcı bellek.
 private final class MemoryStore: GenerationStoring {
     var factors: [String: Double] = [:]
-    var history: [[Double]] = []
+    var history: [RouteHistoryEntry] = []
 
     func loadDetourFactors() -> [String: Double] { factors }
     func saveDetourFactors(_ factors: [String: Double]) { self.factors = factors }
-    func loadRouteHistory() -> [[Double]] { history }
-    func saveRouteHistory(_ history: [[Double]]) { self.history = history }
+    func loadRouteHistory() -> [RouteHistoryEntry] { history }
+    func saveRouteHistory(_ history: [RouteHistoryEntry]) { self.history = history }
 }
 
 /// Bacak başına dolambacı değişen sahte ağ. `FakeDirections` her bacağa aynı
@@ -104,6 +104,16 @@ struct RouteGeneratorTests {
         policy.throttleBackoff = .milliseconds(1)
         policy.requestPacing = .zero
         return policy
+    }
+
+    /// Planın izin verdiği en fazla istek. Ayrı bir bütçe yok; sınır planın
+    /// kendisinden gelir: şekil başına en fazla `maxEvaluations` tam halka ve tek
+    /// onarım (2 bacak), üstüne her toparlanmada iptal edilen uçuştaki istekler.
+    private func worstCaseRequests(_ policy: GenerationPolicy) -> Int {
+        let loops = policy.maxLoopAttempts * (policy.maxEvaluations * policy.vertexCountRange.upperBound + 2)
+        let fallbacks = policy.fallbackAttempts * (policy.maxEvaluations * 2 + 2)
+        let recoveries = (policy.maxRecoveries + policy.maxThrottleRecoveries) * policy.maxConcurrentRequests
+        return loops + fallbacks + recoveries
     }
 
     /// Varsayılan tahmin (1.3) sahte ağın 1.6'lık dolambacına göre %23 kısa
@@ -175,7 +185,7 @@ struct RouteGeneratorTests {
         _ = try await generator.generate(from: start, targetDistance: 8_000)
 
         #expect(network.maxInFlight == generator.policy.maxConcurrentRequests)
-        #expect(generator.lastStats.requests <= generator.policy.requestBudget)
+        #expect(generator.lastStats.requests <= worstCaseRequests(generator.policy))
     }
 
     /// Tek bir throttle üretimi öldürmez: beklenir, tur kaldığı yerden sürer ve
@@ -217,7 +227,7 @@ struct RouteGeneratorTests {
 
         #expect(route.kind == .outAndBack)
         #expect(abs(route.distanceError) <= generator.policy.fallbackTolerance)
-        #expect(generator.lastStats.requests <= generator.policy.requestBudget)
+        #expect(generator.lastStats.requests <= worstCaseRequests(generator.policy))
     }
 
     /// Aynı yerden art arda üretilen rotalar farklı yönlere açılır ve eşikten
@@ -343,21 +353,19 @@ struct RouteGeneratorTests {
     /// yarıçaplı kareyi 40 m aralıklı satırlarla tarar, yani her nokta bir
     /// önceki rotadan en fazla 20 m uzakta kalır. `RouteFootprint` girdiyi bir
     /// yol gibi yeniden örneklediği için satır uçları yeter.
-    private func blanketHistoryEntry(around center: CLLocationCoordinate2D, radius: Double) -> [Double] {
-        var values = [center.latitude, center.longitude, 0.0]
+    private func blanketHistoryEntry(around center: CLLocationCoordinate2D, radius: Double) -> RouteHistoryEntry {
+        var samples: [RoutePoint] = []
         var north = -radius
         var isRightwards = true
         while north <= radius {
             let easts = isRightwards ? [-radius, radius] : [radius, -radius]
             for east in easts {
-                let point = Geo.move(from: center, east: east, north: north)
-                values.append(point.latitude)
-                values.append(point.longitude)
+                samples.append(RoutePoint(Geo.move(from: center, east: east, north: north)))
             }
             north += 40
             isRightwards.toggle()
         }
-        return values
+        return RouteHistoryEntry(start: RoutePoint(center), bearing: 0, samples: samples)
     }
 
     /// Yürünemeyen bacak iki yönde de cache'lenir: A→B'ye "yol yok" cevabı
@@ -374,7 +382,9 @@ struct RouteGeneratorTests {
 
         // Halka a→b ve b→a'dan oluşur; tek istek ikisini de karşılamalı.
         #expect(network.requestCount == 1)
-        #expect(fetcher.missingCount(around: [a, b]) == 0)
+        // İki yön de cache'te: aynı halka yeniden istenince ağa gidilmez.
+        try await fetcher.prefetch(around: [a, b])
+        #expect(network.requestCount == 1)
     }
 }
 
